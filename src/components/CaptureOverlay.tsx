@@ -1,28 +1,115 @@
-// The guided-capture overlay over the live camera. Many small dots mark the
-// directions to shoot; they move as you turn. Aim the center reticle at a dot
-// and hold steady to auto-capture. An arrow points to the nearest one still
-// to do when it's off screen.
+// Self-driven guided-capture overlay. It runs its OWN animation loop, reading
+// the live orientation from a ref, so the rest of the screen never re-renders
+// while you scan. It positions the dots, handles aim-and-hold, and calls back
+// only when a photo should be taken.
+import { useEffect, useRef, useState } from 'react';
+import type { RefObject } from 'react';
+import type { OrientationData } from '../hooks/useOrientation';
+import { projectTargets } from '../utils/targets';
 import type { TargetView } from '../utils/targets';
 
 type CaptureOverlayProps = {
-  views: TargetView[];
-  aligned: string | null;
-  dwell: number; // 0..1 hold progress
-  doneCount: number;
+  dataRef: RefObject<OrientationData>;
+  frontOffsetRef: RefObject<number | null>;
+  doneRef: RefObject<Set<string>>;
   total: number;
+  onCapture: (id: string) => void;
+  onSetFront: (heading: number) => void;
 };
 
 const RING_R = 48;
 const RING_C = 2 * Math.PI * RING_R;
+const DWELL_MS = 900;
 
 export function CaptureOverlay({
-  views,
-  aligned,
-  dwell,
-  doneCount,
+  dataRef,
+  frontOffsetRef,
+  doneRef,
   total,
+  onCapture,
+  onSetFront,
 }: CaptureOverlayProps) {
-  // Nearest target still to do — used for the off-screen guidance arrow.
+  const [views, setViews] = useState<TargetView[]>([]);
+  const [aligned, setAligned] = useState<string | null>(null);
+  const [dwell, setDwell] = useState(0);
+
+  // Keep callbacks fresh without restarting the loop.
+  const onCaptureRef = useRef(onCapture);
+  const onSetFrontRef = useRef(onSetFront);
+  onCaptureRef.current = onCapture;
+  onSetFrontRef.current = onSetFront;
+
+  useEffect(() => {
+    let rafId = 0;
+    let dwellTarget: string | null = null;
+    let dwellStart = 0;
+    let lastFired: string | null = null;
+    let frontRequested = false;
+    // Last emitted values, to avoid re-rendering when nothing moved.
+    let lastCamAz = 999;
+    let lastEl = 999;
+    let lastAligned: string | null = null;
+    let lastDwell = -1;
+
+    const loop = () => {
+      const d = dataRef.current;
+
+      // Auto-set "Front" to wherever you're facing on the first frame.
+      if (frontOffsetRef.current == null && !frontRequested) {
+        frontRequested = true;
+        onSetFrontRef.current(d.heading);
+      }
+      const front = frontOffsetRef.current ?? d.heading;
+      const camAz = (((d.heading - front) % 360) + 360) % 360;
+      const done = doneRef.current ?? new Set<string>();
+
+      const { views: v, aligned: a } = projectTargets(camAz, d.elevation, done);
+
+      // Aim-and-hold timing.
+      const now = performance.now();
+      let dwellValue = 0;
+      if (a) {
+        if (dwellTarget !== a) {
+          dwellTarget = a;
+          dwellStart = now;
+        }
+        dwellValue = Math.min(1, (now - dwellStart) / DWELL_MS);
+        if (dwellValue >= 1 && lastFired !== a) {
+          lastFired = a;
+          onCaptureRef.current(a);
+        }
+      } else {
+        dwellTarget = null;
+        lastFired = null;
+      }
+
+      // Only push to React when something visibly changed.
+      const movedAz = Math.abs(camAz - lastCamAz);
+      const movedEl = Math.abs(d.elevation - lastEl);
+      const dwellChanged = Math.abs(dwellValue - lastDwell) > 0.02;
+      if (
+        movedAz > 0.3 ||
+        movedEl > 0.3 ||
+        a !== lastAligned ||
+        dwellChanged
+      ) {
+        lastCamAz = camAz;
+        lastEl = d.elevation;
+        lastAligned = a;
+        lastDwell = dwellValue;
+        setViews(v);
+        setAligned(a);
+        setDwell(dwellValue);
+      }
+
+      rafId = requestAnimationFrame(loop);
+    };
+
+    rafId = requestAnimationFrame(loop);
+    return () => cancelAnimationFrame(rafId);
+  }, [dataRef, frontOffsetRef, doneRef]);
+
+  const doneCount = views.filter((v) => v.done).length;
   const nearest = views.reduce<TargetView | null>(
     (best, v) => (!v.done && (!best || v.dist < best.dist) ? v : best),
     null,
@@ -38,7 +125,6 @@ export function CaptureOverlay({
         {doneCount >= total ? 'Full coverage 🎉' : `${doneCount} / ${total}`}
       </div>
 
-      {/* Floating, world-locked direction dots */}
       {views.map(
         (v) =>
           v.visible && (
@@ -54,7 +140,6 @@ export function CaptureOverlay({
           ),
       )}
 
-      {/* Center reticle with a dwell-progress ring */}
       <div className={`reticle ${aligned ? 'is-armed' : ''}`}>
         <svg viewBox="0 0 110 110">
           <circle className="reticle__bg" cx="55" cy="55" r={RING_R} />
@@ -72,7 +157,6 @@ export function CaptureOverlay({
         </svg>
       </div>
 
-      {/* Off-screen guidance arrow */}
       {showArrow && (
         <div className="overlay__arrow-wrap">
           <div

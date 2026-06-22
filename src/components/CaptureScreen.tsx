@@ -1,8 +1,8 @@
 // Guided capture + environment-map build (Milestones 2, 3, 5).
-// - Live rear-camera preview with many floating direction dots
-// - Aim the reticle at a dot and hold steady → auto-capture
-// - Live preview fills in; build a 360° equirectangular map; export JPG/PNG
-import { useEffect, useMemo, useRef, useState } from 'react';
+// The orientation-driven parts run inside CaptureOverlay's own loop, so this
+// screen only re-renders when photos/coverage actually change — keeping the
+// live scan smooth.
+import { useEffect, useRef, useState } from 'react';
 import { useCamera } from '../hooks/useCamera';
 import { useOrientation } from '../hooks/useOrientation';
 import { captureFrameToBlob, reencode, downloadBlob } from '../utils/image';
@@ -26,19 +26,17 @@ type Shot = {
   orientation: { yaw: number; pitch: number; roll: number; az: number; el: number } | null;
 };
 
-const DWELL_MS = 900; // how long to hold steady on a target before auto-capture
 const TOTAL = TARGET_POINTS.length;
 
 export function CaptureScreen({ onBack }: CaptureScreenProps) {
   const { videoRef, status, errorMsg, start, stop } = useCamera();
-  const { status: oriStatus, data: ori, enable: enableOri } = useOrientation();
+  const { status: oriStatus, dataRef, enable: enableOri } = useOrientation();
 
   const [shots, setShots] = useState<Shot[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [flash, setFlash] = useState(false);
   const [frontOffset, setFrontOffset] = useState<number | null>(null);
   const [done, setDone] = useState<Set<string>>(new Set());
-  const [dwell, setDwell] = useState(0);
   const [building, setBuilding] = useState(false);
   const [buildProgress, setBuildProgress] = useState(0);
   const [panoUrl, setPanoUrl] = useState<string | null>(null);
@@ -46,8 +44,13 @@ export function CaptureScreen({ onBack }: CaptureScreenProps) {
   const [buildError, setBuildError] = useState('');
   const installed = isStandalone();
   const isReady = status === 'ready';
+  const guiding = isReady && oriStatus === 'granted';
 
-  const captureRef = useRef<(t: string | null) => void>(() => {});
+  // Live refs the overlay's loop reads (no re-render on sensor ticks).
+  const frontOffsetRef = useRef<number | null>(null);
+  const doneRef = useRef<Set<string>>(done);
+  frontOffsetRef.current = frontOffset;
+  doneRef.current = done;
 
   // Clean up thumbnail URLs on unmount.
   useEffect(() => {
@@ -57,33 +60,27 @@ export function CaptureScreen({ onBack }: CaptureScreenProps) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // First time orientation is granted, treat the current heading as "Front".
+  // Release the panorama object URL when replaced / on unmount.
   useEffect(() => {
-    if (oriStatus === 'granted' && frontOffset === null) {
-      setFrontOffset(ori.heading);
-    }
-  }, [oriStatus, frontOffset, ori.heading]);
-
-  const headingRel =
-    frontOffset == null ? ori.heading : ((ori.heading - frontOffset) % 360 + 360) % 360;
-  const elevation = ori.elevation;
+    return () => {
+      if (panoUrl) URL.revokeObjectURL(panoUrl);
+    };
+  }, [panoUrl]);
 
   const startScan = () => {
     start();
     if (oriStatus !== 'granted') enableOri();
   };
 
-  const guiding = isReady && oriStatus === 'granted' && frontOffset !== null;
-  const { views, aligned } = useMemo(() => {
-    if (!guiding) return { views: [], aligned: null };
-    return projectTargets(headingRel, elevation, done);
-  }, [guiding, headingRel, elevation, done]);
-
   const capture = (target: string | null) => {
     const video = videoRef.current;
     if (!video) return;
     setFlash(true);
     window.setTimeout(() => setFlash(false), 180);
+
+    const d = dataRef.current;
+    const front = frontOffset ?? d.heading;
+    const az = (((d.heading - front) % 360) + 360) % 360;
 
     captureFrameToBlob(video).then((blob) => {
       if (!blob) return;
@@ -94,7 +91,7 @@ export function CaptureScreen({ onBack }: CaptureScreenProps) {
         target,
         orientation:
           oriStatus === 'granted'
-            ? { yaw: ori.yaw, pitch: ori.pitch, roll: ori.roll, az: headingRel, el: elevation }
+            ? { yaw: d.yaw, pitch: d.pitch, roll: d.roll, az, el: d.elevation }
             : null,
       };
       setShots((prev) => [shot, ...prev]);
@@ -104,35 +101,19 @@ export function CaptureScreen({ onBack }: CaptureScreenProps) {
       }
     });
   };
-  captureRef.current = capture;
 
-  // Auto-capture: hold steady on a dot to fill the ring, then snap it.
-  useEffect(() => {
-    if (!aligned) {
-      setDwell(0);
+  // Manual shutter: capture whatever dot we're nearest to (if guiding).
+  const handleShutter = () => {
+    if (!guiding) {
+      capture(null);
       return;
     }
-    let rafId = 0;
-    const t0 = performance.now();
-    const loop = () => {
-      const p = Math.min(1, (performance.now() - t0) / DWELL_MS);
-      setDwell(p);
-      if (p >= 1) {
-        captureRef.current(aligned);
-      } else {
-        rafId = requestAnimationFrame(loop);
-      }
-    };
-    rafId = requestAnimationFrame(loop);
-    return () => cancelAnimationFrame(rafId);
-  }, [aligned]);
-
-  // Release the panorama object URL when replaced / on unmount.
-  useEffect(() => {
-    return () => {
-      if (panoUrl) URL.revokeObjectURL(panoUrl);
-    };
-  }, [panoUrl]);
+    const d = dataRef.current;
+    const front = frontOffset ?? d.heading;
+    const az = (((d.heading - front) % 360) + 360) % 360;
+    const { aligned } = projectTargets(az, d.elevation, done);
+    capture(aligned);
+  };
 
   const deleteShot = (id: string) => {
     setShots((prev) => {
@@ -223,11 +204,12 @@ export function CaptureScreen({ onBack }: CaptureScreenProps) {
         )}
         {guiding && (
           <CaptureOverlay
-            views={views}
-            aligned={aligned}
-            dwell={dwell}
-            doneCount={done.size}
+            dataRef={dataRef}
+            frontOffsetRef={frontOffsetRef}
+            doneRef={doneRef}
             total={TOTAL}
+            onCapture={capture}
+            onSetFront={(h) => setFrontOffset(h)}
           />
         )}
         {flash && <div className="cam-flash" />}
@@ -243,12 +225,15 @@ export function CaptureScreen({ onBack }: CaptureScreenProps) {
               Stop
             </button>
           </div>
-          <button className="shutter" onClick={() => capture(aligned)} aria-label="Capture photo">
+          <button className="shutter" onClick={handleShutter} aria-label="Capture photo">
             <span />
           </button>
           <div className="cam-side right">
             {oriStatus === 'granted' && (
-              <button className="cam-stop" onClick={() => setFrontOffset(ori.heading)}>
+              <button
+                className="cam-stop"
+                onClick={() => setFrontOffset(dataRef.current.heading)}
+              >
                 Set Front
               </button>
             )}
@@ -290,8 +275,8 @@ export function CaptureScreen({ onBack }: CaptureScreenProps) {
       )}
       {guiding && (
         <p className="note scan-tip">
-          Sweep around and aim the ring at every dot — the more you fill, the
-          less black in your map. {done.size} / {TOTAL} angles captured.
+          Sweep around and park the ring on every dot — the more you fill, the
+          less black in your map.
         </p>
       )}
 
