@@ -1,14 +1,17 @@
-// Milestone 2: real camera capture.
-// - Start/Stop the rear camera
-// - Live preview
-// - Capture frames to a thumbnail gallery
+// Milestone 2 + 3: camera capture with orientation guidance.
+// - Start/Stop the rear camera, live preview, capture to a gallery
 // - Delete a shot, or download it as JPG / PNG
+// - Track which of the six directions you've covered using the motion sensors
 import { useEffect, useState } from 'react';
 import { useCamera } from '../hooks/useCamera';
+import { useOrientation } from '../hooks/useOrientation';
 import { captureFrameToBlob, reencode, downloadBlob } from '../utils/image';
 import { isStandalone } from '../utils/platform';
+import { activeTarget, TARGETS } from '../utils/targets';
+import type { TargetId } from '../utils/targets';
 import { InstallSteps } from './InstallSteps';
 import { ProximityText } from './ProximityText';
+import { CoverageGuide } from './CoverageGuide';
 
 type CaptureScreenProps = {
   onBack: () => void;
@@ -19,13 +22,26 @@ type Shot = {
   id: string;
   blob: Blob;
   url: string; // object URL for showing the thumbnail
+  target: TargetId | null; // which direction it was aimed at (if known)
+  orientation: { yaw: number; pitch: number; roll: number } | null;
 };
+
+const targetLabel = (id: TargetId) =>
+  TARGETS.find((t) => t.id === id)?.label ?? id;
 
 export function CaptureScreen({ onBack }: CaptureScreenProps) {
   const { videoRef, status, errorMsg, start, stop } = useCamera();
+  const {
+    status: oriStatus,
+    data: ori,
+    enable: enableOri,
+  } = useOrientation();
+
   const [shots, setShots] = useState<Shot[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [flash, setFlash] = useState(false);
+  const [frontOffset, setFrontOffset] = useState<number | null>(null);
+  const [done, setDone] = useState<Set<TargetId>>(new Set());
   const installed = isStandalone();
 
   // Release all the thumbnail object URLs when the screen closes.
@@ -37,20 +53,46 @@ export function CaptureScreen({ onBack }: CaptureScreenProps) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  // When orientation is first enabled, treat the current heading as "Front".
+  useEffect(() => {
+    if (oriStatus === 'granted' && frontOffset === null) {
+      setFrontOffset(ori.heading);
+    }
+  }, [oriStatus, frontOffset, ori.heading]);
+
+  // Heading relative to the calibrated front, and the target we're aimed at.
+  const headingRel =
+    frontOffset == null
+      ? ori.heading
+      : ((ori.heading - frontOffset) % 360 + 360) % 360;
+  const active =
+    oriStatus === 'granted' ? activeTarget(headingRel, ori.pitch) : null;
+
   const capture = async () => {
     const video = videoRef.current;
     if (!video) return;
     // Quick white flash for tactile "shutter" feedback.
     setFlash(true);
     window.setTimeout(() => setFlash(false), 180);
+
     const blob = await captureFrameToBlob(video);
     if (!blob) return;
+
+    const target = active;
     const shot: Shot = {
       id: crypto.randomUUID(),
       blob,
       url: URL.createObjectURL(blob),
+      target,
+      orientation:
+        oriStatus === 'granted'
+          ? { yaw: ori.yaw, pitch: ori.pitch, roll: ori.roll }
+          : null,
     };
     setShots((prev) => [shot, ...prev]);
+    if (target) {
+      setDone((prev) => new Set(prev).add(target));
+    }
   };
 
   const deleteShot = (id: string) => {
@@ -140,6 +182,50 @@ export function CaptureScreen({ onBack }: CaptureScreenProps) {
         </button>
       )}
 
+      {/* Orientation guidance (Milestone 3) */}
+      {isReady &&
+        (oriStatus === 'granted' ? (
+          <CoverageGuide
+            data={ori}
+            frontOffset={frontOffset}
+            active={active}
+            done={done}
+            onSetFront={() => setFrontOffset(ori.heading)}
+          />
+        ) : (
+          <section className="card">
+            <h2>
+              🧭 <ProximityText>Orientation guidance</ProximityText>
+            </h2>
+            {oriStatus === 'unsupported' ? (
+              <p>
+                This device doesn’t report orientation, so direction guidance
+                isn’t available. You can still capture photos freely.
+              </p>
+            ) : oriStatus === 'denied' ? (
+              <>
+                <p className="camera-error">
+                  Motion access was blocked. Enable it in Safari settings, then
+                  try again.
+                </p>
+                <button className="btn btn-ghost" onClick={enableOri}>
+                  Try Again
+                </button>
+              </>
+            ) : (
+              <>
+                <p>
+                  Turn on motion sensors for a live compass that tracks all six
+                  directions as you capture them.
+                </p>
+                <button className="btn btn-ghost" onClick={enableOri}>
+                  Enable orientation
+                </button>
+              </>
+            )}
+          </section>
+        ))}
+
       {/* Thumbnail gallery */}
       {shots.length > 0 && (
         <section className="card">
@@ -159,6 +245,9 @@ export function CaptureScreen({ onBack }: CaptureScreenProps) {
                 >
                   <img src={shot.url} alt="Captured frame" />
                 </button>
+                {shot.target && (
+                  <span className="shot__tag">{targetLabel(shot.target)}</span>
+                )}
                 <button
                   className="shot__del"
                   onClick={() => deleteShot(shot.id)}
