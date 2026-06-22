@@ -1,10 +1,11 @@
-// Placeholder capture screen for Milestone 1.
-// The real camera will be built in Milestone 2 — we are being honest
-// here rather than faking a feature that doesn't exist yet.
-//
-// When opened in a browser (not installed), we show the user how to add
-// SimplyHDRI to their Home Screen, since the camera works best as an
-// installed app. When already installed, we show the "coming soon" note.
+// Milestone 2: real camera capture.
+// - Start/Stop the rear camera
+// - Live preview
+// - Capture frames to a thumbnail gallery
+// - Delete a shot, or download it as JPG / PNG
+import { useEffect, useState } from 'react';
+import { useCamera } from '../hooks/useCamera';
+import { captureFrameToBlob, reencode, downloadBlob } from '../utils/image';
 import { isStandalone } from '../utils/platform';
 import { InstallSteps } from './InstallSteps';
 
@@ -12,8 +13,62 @@ type CaptureScreenProps = {
   onBack: () => void;
 };
 
+// One captured photo held in memory while the screen is open.
+type Shot = {
+  id: string;
+  blob: Blob;
+  url: string; // object URL for showing the thumbnail
+};
+
 export function CaptureScreen({ onBack }: CaptureScreenProps) {
+  const { videoRef, status, errorMsg, start, stop } = useCamera();
+  const [shots, setShots] = useState<Shot[]>([]);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
   const installed = isStandalone();
+
+  // Release all the thumbnail object URLs when the screen closes.
+  useEffect(() => {
+    return () => {
+      shots.forEach((shot) => URL.revokeObjectURL(shot.url));
+    };
+    // We intentionally clean up only on unmount.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const capture = async () => {
+    const video = videoRef.current;
+    if (!video) return;
+    const blob = await captureFrameToBlob(video);
+    if (!blob) return;
+    const shot: Shot = {
+      id: crypto.randomUUID(),
+      blob,
+      url: URL.createObjectURL(blob),
+    };
+    setShots((prev) => [shot, ...prev]);
+  };
+
+  const deleteShot = (id: string) => {
+    setShots((prev) => {
+      const found = prev.find((s) => s.id === id);
+      if (found) URL.revokeObjectURL(found.url);
+      return prev.filter((s) => s.id !== id);
+    });
+    if (selectedId === id) setSelectedId(null);
+  };
+
+  const download = async (shot: Shot, format: 'jpg' | 'png') => {
+    const stamp = Date.now();
+    if (format === 'png') {
+      const png = await reencode(shot.blob, 'image/png');
+      downloadBlob(png, `simplyhdri-${stamp}.png`);
+    } else {
+      downloadBlob(shot.blob, `simplyhdri-${stamp}.jpg`);
+    }
+  };
+
+  const selected = shots.find((s) => s.id === selectedId) || null;
+  const isReady = status === 'ready';
 
   return (
     <div className="app-shell">
@@ -21,29 +76,111 @@ export function CaptureScreen({ onBack }: CaptureScreenProps) {
         <img src="/pwa-192x192.png" alt="SimplyHDRI icon" />
         <div>
           <h1>Capture</h1>
-          <div className="tagline">Environment map capture</div>
+          <div className="tagline">Rear camera · {shots.length} captured</div>
         </div>
       </header>
 
-      {installed ? (
-        <section className="card placeholder">
-          <span className="badge">Coming in the next step</span>
-          <h2>Camera capture is on the way</h2>
-          <p>
-            In the next milestone this screen will open your rear camera and
-            guide you to photograph all around you. For now, this confirms
-            navigation works.
-          </p>
-        </section>
+      {/* Live camera preview (the video is always mounted so the camera
+          hook can attach to it; a placeholder covers it until it's ready). */}
+      <div className="camera-view">
+        <video
+          ref={videoRef}
+          playsInline
+          muted
+          autoPlay
+          className={isReady ? '' : 'is-hidden'}
+        />
+        {!isReady && (
+          <div className="camera-view__placeholder">
+            {status === 'requesting' && 'Starting camera…'}
+            {status === 'idle' && 'Tap “Start Camera” to begin.'}
+            {(status === 'denied' || status === 'error') && '📷'}
+          </div>
+        )}
+      </div>
+
+      {errorMsg && <p className="camera-error">{errorMsg}</p>}
+
+      {/* Controls change with the camera state. */}
+      {isReady ? (
+        <div className="btn-row">
+          <button className="btn btn-primary" onClick={capture}>
+            📸 Capture
+          </button>
+          <button className="btn btn-ghost" onClick={stop}>
+            Stop
+          </button>
+        </div>
       ) : (
+        <button
+          className="btn btn-primary"
+          onClick={start}
+          disabled={status === 'requesting'}
+        >
+          {status === 'requesting'
+            ? 'Starting…'
+            : status === 'denied' || status === 'error'
+              ? 'Try Again'
+              : 'Start Camera'}
+        </button>
+      )}
+
+      {/* Thumbnail gallery */}
+      {shots.length > 0 && (
         <section className="card">
-          <h2>📲 Add SimplyHDRI to your Home Screen</h2>
-          <p>
-            The camera works best when SimplyHDRI is installed as an app. Add it
-            to your Home Screen in four quick steps:
-          </p>
-          <InstallSteps />
+          <h2>Captured photos</h2>
+          <div className="shots">
+            {shots.map((shot) => (
+              <div
+                key={shot.id}
+                className={`shot ${selectedId === shot.id ? 'is-selected' : ''}`}
+              >
+                <button
+                  className="shot__pick"
+                  onClick={() => setSelectedId(shot.id)}
+                  aria-label="Select photo"
+                >
+                  <img src={shot.url} alt="Captured frame" />
+                </button>
+                <button
+                  className="shot__del"
+                  onClick={() => deleteShot(shot.id)}
+                  aria-label="Delete photo"
+                >
+                  ×
+                </button>
+              </div>
+            ))}
+          </div>
+
+          {selected && (
+            <div className="shot-actions">
+              <span className="note">Download selected photo:</span>
+              <div className="btn-row">
+                <button
+                  className="btn btn-ghost"
+                  onClick={() => download(selected, 'jpg')}
+                >
+                  ⬇️ JPG
+                </button>
+                <button
+                  className="btn btn-ghost"
+                  onClick={() => download(selected, 'png')}
+                >
+                  ⬇️ PNG
+                </button>
+              </div>
+            </div>
+          )}
         </section>
+      )}
+
+      {/* Gentle install hint on the web (the camera still works in Safari). */}
+      {!installed && (
+        <details className="install-tip">
+          <summary>💡 Tip: add SimplyHDRI to your Home Screen</summary>
+          <InstallSteps />
+        </details>
       )}
 
       <button className="btn btn-ghost" onClick={onBack}>
