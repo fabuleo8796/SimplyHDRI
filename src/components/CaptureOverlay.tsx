@@ -1,12 +1,12 @@
-// The guided-capture overlay that sits on top of the live camera.
-// Floating dots mark each direction and move as you turn the phone; aim the
-// center reticle at a dot and hold steady to auto-capture. A guidance arrow
-// points toward the nearest target when it's off screen.
-import type { TargetView, TargetId } from '../utils/targets';
+// The guided-capture overlay over the live camera. Many small dots mark the
+// directions to shoot; they move as you turn. Aim the center reticle at a dot
+// and hold steady to auto-capture. An arrow points to the nearest one still
+// to do when it's off screen.
+import type { TargetView } from '../utils/targets';
 
 type CaptureOverlayProps = {
   views: TargetView[];
-  aligned: TargetId | null;
+  aligned: string | null;
   dwell: number; // 0..1 hold progress
   doneCount: number;
   total: number;
@@ -23,9 +23,8 @@ export function CaptureOverlay({
   total,
 }: CaptureOverlayProps) {
   // Nearest target still to do — used for the off-screen guidance arrow.
-  const undone = views.filter((v) => !v.done);
-  const nearest = undone.reduce<TargetView | null>(
-    (best, v) => (!best || v.dist < best.dist ? v : best),
+  const nearest = views.reduce<TargetView | null>(
+    (best, v) => (!v.done && (!best || v.dist < best.dist) ? v : best),
     null,
   );
   const showArrow = !!nearest && !nearest.visible && aligned == null;
@@ -36,7 +35,7 @@ export function CaptureOverlay({
   return (
     <div className="overlay">
       <div className="overlay__progress">
-        {doneCount === total ? 'All directions captured 🎉' : `${doneCount} / ${total}`}
+        {doneCount >= total ? 'Full coverage 🎉' : `${doneCount} / ${total}`}
       </div>
 
       {/* Floating, world-locked direction dots */}
@@ -45,13 +44,12 @@ export function CaptureOverlay({
           v.visible && (
             <div
               key={v.id}
-              className={`dot ${v.done ? 'is-done' : ''} ${
+              className={`adot ${v.done ? 'is-done' : ''} ${
                 aligned === v.id ? 'is-aligned' : ''
               }`}
               style={{ left: `${v.x}%`, top: `${v.y}%` }}
             >
-              <span className="dot__icon">{v.done ? '✓' : v.icon}</span>
-              <span className="dot__label">{v.label}</span>
+              {v.done ? '✓' : ''}
             </div>
           ),
       )}
@@ -83,7 +81,7 @@ export function CaptureOverlay({
           >
             ➤
           </div>
-          <div className="overlay__arrow-hint">Turn to {nearest?.label}</div>
+          <div className="overlay__arrow-hint">Turn to the next dot</div>
         </div>
       )}
     </div>

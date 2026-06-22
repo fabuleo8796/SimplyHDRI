@@ -1,16 +1,14 @@
-// Camera capture with guided, aim-and-hold direction targeting (Milestones 2+3).
-// - Live rear-camera preview with floating direction dots
+// Guided capture + environment-map build (Milestones 2, 3, 5).
+// - Live rear-camera preview with many floating direction dots
 // - Aim the reticle at a dot and hold steady → auto-capture
-// - A live environment preview fills in as you go
-// - Gallery with delete + JPG/PNG download
+// - Live preview fills in; build a 360° equirectangular map; export JPG/PNG
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useCamera } from '../hooks/useCamera';
 import { useOrientation } from '../hooks/useOrientation';
 import { captureFrameToBlob, reencode, downloadBlob } from '../utils/image';
 import { buildEquirect } from '../utils/stitch';
 import { isStandalone } from '../utils/platform';
-import { projectTargets, TARGETS } from '../utils/targets';
-import type { TargetId } from '../utils/targets';
+import { projectTargets, TARGET_POINTS } from '../utils/targets';
 import { InstallSteps } from './InstallSteps';
 import { ProximityText } from './ProximityText';
 import { CaptureOverlay } from './CaptureOverlay';
@@ -24,13 +22,12 @@ type Shot = {
   id: string;
   blob: Blob;
   url: string;
-  target: TargetId | null;
+  target: string | null;
   orientation: { yaw: number; pitch: number; roll: number; az: number; el: number } | null;
 };
 
 const DWELL_MS = 900; // how long to hold steady on a target before auto-capture
-const targetLabel = (id: TargetId) =>
-  TARGETS.find((t) => t.id === id)?.label ?? id;
+const TOTAL = TARGET_POINTS.length;
 
 export function CaptureScreen({ onBack }: CaptureScreenProps) {
   const { videoRef, status, errorMsg, start, stop } = useCamera();
@@ -40,7 +37,7 @@ export function CaptureScreen({ onBack }: CaptureScreenProps) {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [flash, setFlash] = useState(false);
   const [frontOffset, setFrontOffset] = useState<number | null>(null);
-  const [done, setDone] = useState<Set<TargetId>>(new Set());
+  const [done, setDone] = useState<Set<string>>(new Set());
   const [dwell, setDwell] = useState(0);
   const [building, setBuilding] = useState(false);
   const [buildProgress, setBuildProgress] = useState(0);
@@ -50,8 +47,7 @@ export function CaptureScreen({ onBack }: CaptureScreenProps) {
   const installed = isStandalone();
   const isReady = status === 'ready';
 
-  // Keep the latest capture function reachable from timers without stale state.
-  const captureRef = useRef<(t: TargetId | null) => void>(() => {});
+  const captureRef = useRef<(t: string | null) => void>(() => {});
 
   // Clean up thumbnail URLs on unmount.
   useEffect(() => {
@@ -68,25 +64,22 @@ export function CaptureScreen({ onBack }: CaptureScreenProps) {
     }
   }, [oriStatus, frontOffset, ori.heading]);
 
-  // Camera direction relative to the calibrated front.
   const headingRel =
     frontOffset == null ? ori.heading : ((ori.heading - frontOffset) % 360 + 360) % 360;
   const elevation = ori.elevation;
 
-  // One tap starts everything: rear camera + motion sensors together.
   const startScan = () => {
     start();
     if (oriStatus !== 'granted') enableOri();
   };
 
-  // Where every dot is and which one we're locked onto.
   const guiding = isReady && oriStatus === 'granted' && frontOffset !== null;
   const { views, aligned } = useMemo(() => {
     if (!guiding) return { views: [], aligned: null };
     return projectTargets(headingRel, elevation, done);
   }, [guiding, headingRel, elevation, done]);
 
-  const capture = (target: TargetId | null) => {
+  const capture = (target: string | null) => {
     const video = videoRef.current;
     if (!video) return;
     setFlash(true);
@@ -113,8 +106,7 @@ export function CaptureScreen({ onBack }: CaptureScreenProps) {
   };
   captureRef.current = capture;
 
-  // Auto-capture: while locked on an undone target, fill the dwell ring; when
-  // it completes, take the shot. Moving off the target resets it.
+  // Auto-capture: hold steady on a dot to fill the ring, then snap it.
   useEffect(() => {
     if (!aligned) {
       setDwell(0);
@@ -135,6 +127,13 @@ export function CaptureScreen({ onBack }: CaptureScreenProps) {
     return () => cancelAnimationFrame(rafId);
   }, [aligned]);
 
+  // Release the panorama object URL when replaced / on unmount.
+  useEffect(() => {
+    return () => {
+      if (panoUrl) URL.revokeObjectURL(panoUrl);
+    };
+  }, [panoUrl]);
+
   const deleteShot = (id: string) => {
     setShots((prev) => {
       const found = prev.find((s) => s.id === id);
@@ -154,13 +153,6 @@ export function CaptureScreen({ onBack }: CaptureScreenProps) {
     }
   };
 
-  // Release the panorama object URL when it's replaced or the screen closes.
-  useEffect(() => {
-    return () => {
-      if (panoUrl) URL.revokeObjectURL(panoUrl);
-    };
-  }, [panoUrl]);
-
   const orientedShots = shots.filter((s) => s.orientation);
 
   const buildPano = async () => {
@@ -174,7 +166,7 @@ export function CaptureScreen({ onBack }: CaptureScreenProps) {
           az: s.orientation!.az,
           el: s.orientation!.el,
         })),
-        { width: 2048, height: 1024, hfovDeg: 65, onProgress: setBuildProgress },
+        { width: 2048, height: 1024, hfovDeg: 70, onProgress: setBuildProgress },
       );
       setPanoUrl((prev) => {
         if (prev) URL.revokeObjectURL(prev);
@@ -225,7 +217,7 @@ export function CaptureScreen({ onBack }: CaptureScreenProps) {
         {!isReady && (
           <div className="camera-view__placeholder">
             {status === 'requesting' && 'Starting camera…'}
-            {status === 'idle' && 'Tap “Start Camera” to begin.'}
+            {status === 'idle' && 'Tap “Start Scan” to begin.'}
             {(status === 'denied' || status === 'error') && '📷'}
           </div>
         )}
@@ -235,7 +227,7 @@ export function CaptureScreen({ onBack }: CaptureScreenProps) {
             aligned={aligned}
             dwell={dwell}
             doneCount={done.size}
-            total={TARGETS.length}
+            total={TOTAL}
           />
         )}
         {flash && <div className="cam-flash" />}
@@ -276,8 +268,6 @@ export function CaptureScreen({ onBack }: CaptureScreenProps) {
         </button>
       )}
 
-      {/* Only shown if motion access is blocked or unavailable — the normal
-          flow grants it during "Start Scan", so nothing pops in mid-scan. */}
       {isReady && oriStatus === 'denied' && (
         <section className="card">
           <h2>
@@ -298,6 +288,12 @@ export function CaptureScreen({ onBack }: CaptureScreenProps) {
           shutter button.
         </p>
       )}
+      {guiding && (
+        <p className="note scan-tip">
+          Sweep around and aim the ring at every dot — the more you fill, the
+          less black in your map. {done.size} / {TOTAL} angles captured.
+        </p>
+      )}
 
       {/* Live environment preview that fills in as you capture. */}
       {guiding && shots.some((s) => s.orientation) && (
@@ -306,70 +302,6 @@ export function CaptureScreen({ onBack }: CaptureScreenProps) {
             <ProximityText>Live preview</ProximityText>
           </h2>
           <PreviewMap shots={shots} />
-          <div className="targets">
-            {TARGETS.map((t) => {
-              const isDone = done.has(t.id);
-              const isActive = aligned === t.id;
-              return (
-                <div
-                  key={t.id}
-                  className={`target ${isDone ? 'is-done' : ''} ${isActive ? 'is-active' : ''}`}
-                >
-                  <span className="target__icon">{isDone ? '✅' : t.icon}</span>
-                  <span className="target__label">{t.label}</span>
-                </div>
-              );
-            })}
-          </div>
-        </section>
-      )}
-
-      {/* Thumbnail gallery */}
-      {shots.length > 0 && (
-        <section className="card">
-          <h2>
-            <ProximityText>Captured photos</ProximityText>
-          </h2>
-          <div className="shots">
-            {shots.map((shot) => (
-              <div
-                key={shot.id}
-                className={`shot ${selectedId === shot.id ? 'is-selected' : ''}`}
-              >
-                <button
-                  className="shot__pick"
-                  onClick={() => setSelectedId(shot.id)}
-                  aria-label="Select photo"
-                >
-                  <img src={shot.url} alt="Captured frame" />
-                </button>
-                {shot.target && (
-                  <span className="shot__tag">{targetLabel(shot.target)}</span>
-                )}
-                <button
-                  className="shot__del"
-                  onClick={() => deleteShot(shot.id)}
-                  aria-label="Delete photo"
-                >
-                  ×
-                </button>
-              </div>
-            ))}
-          </div>
-
-          {selected && (
-            <div className="shot-actions">
-              <span className="note">Download selected photo:</span>
-              <div className="btn-row">
-                <button className="btn btn-ghost" onClick={() => download(selected, 'jpg')}>
-                  ⬇️ JPG
-                </button>
-                <button className="btn btn-ghost" onClick={() => download(selected, 'png')}>
-                  ⬇️ PNG
-                </button>
-              </div>
-            </div>
-          )}
         </section>
       )}
 
@@ -415,9 +347,55 @@ export function CaptureScreen({ onBack }: CaptureScreenProps) {
               </div>
               <p className="note">
                 In Blender: World Properties → Color → Environment Texture → open
-                this file (it’s already equirectangular). Seams are normal for
-                this first version.
+                this file (already equirectangular). Black areas = directions you
+                haven’t captured yet.
               </p>
+            </div>
+          )}
+        </section>
+      )}
+
+      {/* Thumbnail gallery */}
+      {shots.length > 0 && (
+        <section className="card">
+          <h2>
+            <ProximityText>Captured photos</ProximityText>
+          </h2>
+          <div className="shots">
+            {shots.map((shot) => (
+              <div
+                key={shot.id}
+                className={`shot ${selectedId === shot.id ? 'is-selected' : ''}`}
+              >
+                <button
+                  className="shot__pick"
+                  onClick={() => setSelectedId(shot.id)}
+                  aria-label="Select photo"
+                >
+                  <img src={shot.url} alt="Captured frame" />
+                </button>
+                <button
+                  className="shot__del"
+                  onClick={() => deleteShot(shot.id)}
+                  aria-label="Delete photo"
+                >
+                  ×
+                </button>
+              </div>
+            ))}
+          </div>
+
+          {selected && (
+            <div className="shot-actions">
+              <span className="note">Download selected photo:</span>
+              <div className="btn-row">
+                <button className="btn btn-ghost" onClick={() => download(selected, 'jpg')}>
+                  ⬇️ JPG
+                </button>
+                <button className="btn btn-ghost" onClick={() => download(selected, 'png')}>
+                  ⬇️ PNG
+                </button>
+              </div>
             </div>
           )}
         </section>
