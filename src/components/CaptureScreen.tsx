@@ -7,6 +7,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { useCamera } from '../hooks/useCamera';
 import { useOrientation } from '../hooks/useOrientation';
 import { captureFrameToBlob, reencode, downloadBlob } from '../utils/image';
+import { buildEquirect } from '../utils/stitch';
 import { isStandalone } from '../utils/platform';
 import { projectTargets, TARGETS } from '../utils/targets';
 import type { TargetId } from '../utils/targets';
@@ -41,6 +42,11 @@ export function CaptureScreen({ onBack }: CaptureScreenProps) {
   const [frontOffset, setFrontOffset] = useState<number | null>(null);
   const [done, setDone] = useState<Set<TargetId>>(new Set());
   const [dwell, setDwell] = useState(0);
+  const [building, setBuilding] = useState(false);
+  const [buildProgress, setBuildProgress] = useState(0);
+  const [panoUrl, setPanoUrl] = useState<string | null>(null);
+  const [panoBlob, setPanoBlob] = useState<Blob | null>(null);
+  const [buildError, setBuildError] = useState('');
   const installed = isStandalone();
   const isReady = status === 'ready';
 
@@ -145,6 +151,51 @@ export function CaptureScreen({ onBack }: CaptureScreenProps) {
       downloadBlob(png, `simplyhdri-${stamp}.png`);
     } else {
       downloadBlob(shot.blob, `simplyhdri-${stamp}.jpg`);
+    }
+  };
+
+  // Release the panorama object URL when it's replaced or the screen closes.
+  useEffect(() => {
+    return () => {
+      if (panoUrl) URL.revokeObjectURL(panoUrl);
+    };
+  }, [panoUrl]);
+
+  const orientedShots = shots.filter((s) => s.orientation);
+
+  const buildPano = async () => {
+    setBuilding(true);
+    setBuildProgress(0);
+    setBuildError('');
+    try {
+      const blob = await buildEquirect(
+        orientedShots.map((s) => ({
+          blob: s.blob,
+          az: s.orientation!.az,
+          el: s.orientation!.el,
+        })),
+        { width: 2048, height: 1024, hfovDeg: 65, onProgress: setBuildProgress },
+      );
+      setPanoUrl((prev) => {
+        if (prev) URL.revokeObjectURL(prev);
+        return URL.createObjectURL(blob);
+      });
+      setPanoBlob(blob);
+    } catch (err) {
+      setBuildError((err as Error)?.message || 'Could not build the map.');
+    } finally {
+      setBuilding(false);
+    }
+  };
+
+  const downloadPano = async (format: 'jpg' | 'png') => {
+    if (!panoBlob) return;
+    const stamp = Date.now();
+    if (format === 'png') {
+      const png = await reencode(panoBlob, 'image/png');
+      downloadBlob(png, `simplyhdri-pano-${stamp}.png`);
+    } else {
+      downloadBlob(panoBlob, `simplyhdri-pano-${stamp}.jpg`);
     }
   };
 
@@ -317,6 +368,56 @@ export function CaptureScreen({ onBack }: CaptureScreenProps) {
                   ⬇️ PNG
                 </button>
               </div>
+            </div>
+          )}
+        </section>
+      )}
+
+      {/* Build the 360° environment map from the captured directions. */}
+      {orientedShots.length >= 2 && (
+        <section className="card">
+          <h2>
+            🌍 <ProximityText>Environment map</ProximityText>
+          </h2>
+          <p>
+            Stitch your {orientedShots.length} directional photos into a 360°
+            equirectangular map you can load into Blender.
+          </p>
+
+          {building ? (
+            <div className="build-progress">
+              <div className="build-bar">
+                <div
+                  className="build-bar__fill"
+                  style={{ width: `${Math.round(buildProgress * 100)}%` }}
+                />
+              </div>
+              <span className="note">Building… {Math.round(buildProgress * 100)}%</span>
+            </div>
+          ) : (
+            <button className="btn btn-primary" onClick={buildPano}>
+              🧩 Build Environment Map
+            </button>
+          )}
+
+          {buildError && <p className="camera-error">{buildError}</p>}
+
+          {panoUrl && !building && (
+            <div className="pano-result">
+              <img className="pano" src={panoUrl} alt="360° environment map" />
+              <div className="btn-row">
+                <button className="btn btn-ghost" onClick={() => downloadPano('jpg')}>
+                  ⬇️ JPG
+                </button>
+                <button className="btn btn-ghost" onClick={() => downloadPano('png')}>
+                  ⬇️ PNG
+                </button>
+              </div>
+              <p className="note">
+                In Blender: World Properties → Color → Environment Texture → open
+                this file (it’s already equirectangular). Seams are normal for
+                this first version.
+              </p>
             </div>
           )}
         </section>
