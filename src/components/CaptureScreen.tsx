@@ -65,7 +65,13 @@ export function CaptureScreen({ onBack }: CaptureScreenProps) {
   // Camera direction relative to the calibrated front.
   const headingRel =
     frontOffset == null ? ori.heading : ((ori.heading - frontOffset) % 360 + 360) % 360;
-  const elevation = Math.max(-90, Math.min(90, ori.pitch - 90));
+  const elevation = ori.elevation;
+
+  // One tap starts everything: rear camera + motion sensors together.
+  const startScan = () => {
+    start();
+    if (oriStatus !== 'granted') enableOri();
+  };
 
   // Where every dot is and which one we're locked onto.
   const guiding = isReady && oriStatus === 'granted' && frontOffset !== null;
@@ -208,51 +214,38 @@ export function CaptureScreen({ onBack }: CaptureScreenProps) {
       ) : (
         <button
           className="btn btn-primary"
-          onClick={start}
+          onClick={startScan}
           disabled={status === 'requesting'}
         >
           {status === 'requesting'
             ? 'Starting…'
             : status === 'denied' || status === 'error'
               ? 'Try Again'
-              : 'Start Camera'}
+              : '▶ Start Scan'}
         </button>
       )}
 
-      {/* Prompt to enable orientation (only relevant once the camera is on). */}
-      {isReady && oriStatus !== 'granted' && (
+      {/* Only shown if motion access is blocked or unavailable — the normal
+          flow grants it during "Start Scan", so nothing pops in mid-scan. */}
+      {isReady && oriStatus === 'denied' && (
         <section className="card">
           <h2>
-            🧭 <ProximityText>Guided capture</ProximityText>
+            🧭 <ProximityText>Guided aiming is off</ProximityText>
           </h2>
-          {oriStatus === 'unsupported' ? (
-            <p>
-              This device doesn’t report orientation, so the aiming guide isn’t
-              available. You can still capture photos with the shutter button.
-            </p>
-          ) : oriStatus === 'denied' ? (
-            <>
-              <p className="camera-error">
-                Motion access was blocked. Enable it in Safari settings, then
-                try again.
-              </p>
-              <button className="btn btn-ghost" onClick={enableOri}>
-                Try Again
-              </button>
-            </>
-          ) : (
-            <>
-              <p>
-                Turn on motion sensors to see floating direction targets. Aim the
-                center ring at each one and hold steady — it captures
-                automatically.
-              </p>
-              <button className="btn btn-ghost" onClick={enableOri}>
-                Enable guided capture
-              </button>
-            </>
-          )}
+          <p className="camera-error">
+            Motion access was blocked. Enable it in Safari (aA menu → Website
+            Settings → Motion &amp; Orientation), then tap below.
+          </p>
+          <button className="btn btn-ghost" onClick={enableOri}>
+            Enable guided aiming
+          </button>
         </section>
+      )}
+      {isReady && oriStatus === 'unsupported' && (
+        <p className="note">
+          This device doesn’t report orientation — capture manually with the
+          shutter button.
+        </p>
       )}
 
       {/* Live environment preview that fills in as you capture. */}
