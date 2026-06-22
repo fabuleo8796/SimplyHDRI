@@ -8,6 +8,7 @@ import { useCamera } from '../hooks/useCamera';
 import { captureFrameToBlob, reencode, downloadBlob } from '../utils/image';
 import { isStandalone } from '../utils/platform';
 import { InstallSteps } from './InstallSteps';
+import { ProximityText } from './ProximityText';
 
 type CaptureScreenProps = {
   onBack: () => void;
@@ -79,7 +80,9 @@ export function CaptureScreen({ onBack }: CaptureScreenProps) {
       <header className="brand">
         <img src="/pwa-192x192.png" alt="SimplyHDRI icon" />
         <div>
-          <h1>Capture</h1>
+          <h1>
+            <ProximityText>Capture</ProximityText>
+          </h1>
           <div className="tagline">Rear camera · {shots.length} captured</div>
         </div>
       </header>
@@ -140,7 +143,9 @@ export function CaptureScreen({ onBack }: CaptureScreenProps) {
       {/* Thumbnail gallery */}
       {shots.length > 0 && (
         <section className="card">
-          <h2>Captured photos</h2>
+          <h2>
+            <ProximityText>Captured photos</ProximityText>
+          </h2>
           <div className="shots">
             {shots.map((shot) => (
               <div
@@ -190,7 +195,9 @@ export function CaptureScreen({ onBack }: CaptureScreenProps) {
       {/* Gentle install hint on the web (the camera still works in Safari). */}
       {!installed && (
         <details className="install-tip">
-          <summary>💡 Tip: add SimplyHDRI to your Home Screen</summary>
+          <summary>
+            💡 <ProximityText>Tip: add SimplyHDRI to your Home Screen</ProximityText>
+          </summary>
           <InstallSteps />
         </details>
       )}

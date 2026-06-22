@@ -1,4 +1,5 @@
 import { InstallGuide } from './InstallGuide';
+import { ProximityText } from './ProximityText';
 import { isStandalone } from '../utils/platform';
 
 // The home screen of the app. It receives a function to call when the
@@ -16,17 +17,25 @@ export function LandingPage({ onStartCapture }: LandingPageProps) {
       <header className="brand">
         <img src="/pwa-192x192.png" alt="SimplyHDRI icon" />
         <div>
-          <h1>SimplyHDRI</h1>
+          <h1>
+            <ProximityText>SimplyHDRI</ProximityText>
+          </h1>
           <div className="tagline">Capture a 360° environment map</div>
         </div>
       </header>
 
       <section className="card">
-        <h2>What this does</h2>
+        <h2>
+          <ProximityText>What this does</ProximityText>
+        </h2>
         <p>
           SimplyHDRI helps you photograph your surroundings and turn them into a
-          360° <strong>environment map</strong> you can use in 3D tools like
-          Blender. Everything stays on your iPhone — no account, no upload.
+          360°{' '}
+          <strong>
+            <ProximityText>environment map</ProximityText>
+          </strong>{' '}
+          you can use in 3D tools like Blender. Everything stays on your iPhone —
+          no account, no upload.
         </p>
       </section>
 

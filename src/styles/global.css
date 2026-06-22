@@ -156,6 +156,25 @@ p {
   color: var(--text-dim);
 }
 
+/* ---- Variable-font proximity text ---- */
+.proximity-text {
+  /* Falls back to the system font if Roboto Flex hasn't loaded (e.g. offline) */
+  font-family: 'Roboto Flex', -apple-system, BlinkMacSystemFont, sans-serif;
+}
+
+/* Visually hidden, but still read by screen readers / selectable */
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
 /* ---- Reusable card ---- */
 .card {
   background: var(--surface);

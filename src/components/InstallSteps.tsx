@@ -2,6 +2,7 @@
 // Used on the capture screen when the app is opened in a browser
 // (rather than already installed to the Home Screen).
 import type { ReactNode } from 'react';
+import { ProximityText } from './ProximityText';
 
 // --- Simple line icons (inherit color via currentColor) ----------------------
 function SafariIcon() {
@@ -76,7 +77,7 @@ export function InstallSteps() {
           <span className="install-step__icon">{step.icon}</span>
           <span className="install-step__body">
             <span className="install-step__title">
-              {i + 1}. {step.title}
+              {i + 1}. <ProximityText>{step.title}</ProximityText>
             </span>
             <span className="install-step__text">{step.text}</span>
           </span>
