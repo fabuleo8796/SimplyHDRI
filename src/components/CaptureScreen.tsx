@@ -24,6 +24,7 @@ export function CaptureScreen({ onBack }: CaptureScreenProps) {
   const { videoRef, status, errorMsg, start, stop } = useCamera();
   const [shots, setShots] = useState<Shot[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [flash, setFlash] = useState(false);
   const installed = isStandalone();
 
   // Release all the thumbnail object URLs when the screen closes.
@@ -38,6 +39,9 @@ export function CaptureScreen({ onBack }: CaptureScreenProps) {
   const capture = async () => {
     const video = videoRef.current;
     if (!video) return;
+    // Quick white flash for tactile "shutter" feedback.
+    setFlash(true);
+    window.setTimeout(() => setFlash(false), 180);
     const blob = await captureFrameToBlob(video);
     if (!blob) return;
     const shot: Shot = {
@@ -97,19 +101,27 @@ export function CaptureScreen({ onBack }: CaptureScreenProps) {
             {(status === 'denied' || status === 'error') && '📷'}
           </div>
         )}
+        {flash && <div className="cam-flash" />}
       </div>
 
       {errorMsg && <p className="camera-error">{errorMsg}</p>}
 
       {/* Controls change with the camera state. */}
       {isReady ? (
-        <div className="btn-row">
-          <button className="btn btn-primary" onClick={capture}>
-            📸 Capture
+        <div className="cam-controls">
+          <div className="cam-side">
+            <button className="cam-stop" onClick={stop}>
+              Stop
+            </button>
+          </div>
+          <button
+            className="shutter"
+            onClick={capture}
+            aria-label="Capture photo"
+          >
+            <span />
           </button>
-          <button className="btn btn-ghost" onClick={stop}>
-            Stop
-          </button>
+          <div className="cam-side right" />
         </div>
       ) : (
         <button

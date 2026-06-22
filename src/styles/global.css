@@ -62,6 +62,68 @@ body {
   pointer-events: none;
 }
 
+/* ---- Entrance animations ---- */
+@keyframes fadeUp {
+  from {
+    opacity: 0;
+    transform: translateY(14px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+@keyframes popIn {
+  from {
+    opacity: 0;
+    transform: scale(0.85);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+/* Each top-level block fades up, staggered one after another. */
+.app-shell > * {
+  animation: fadeUp 0.5s ease both;
+}
+.app-shell > *:nth-child(1) {
+  animation-delay: 0.03s;
+}
+.app-shell > *:nth-child(2) {
+  animation-delay: 0.09s;
+}
+.app-shell > *:nth-child(3) {
+  animation-delay: 0.15s;
+}
+.app-shell > *:nth-child(4) {
+  animation-delay: 0.21s;
+}
+.app-shell > *:nth-child(5) {
+  animation-delay: 0.27s;
+}
+.app-shell > *:nth-child(6) {
+  animation-delay: 0.33s;
+}
+.app-shell > *:nth-child(7) {
+  animation-delay: 0.39s;
+}
+
+/* New captured thumbnails pop in. */
+.shot {
+  animation: popIn 0.3s ease both;
+}
+
+/* Respect users who prefer less motion. */
+@media (prefers-reduced-motion: reduce) {
+  .app-shell > *,
+  .shot {
+    animation: none;
+  }
+}
+
 /* App shell: respects the iPhone notch and home-bar safe areas */
 .app-shell {
   position: relative;
@@ -126,6 +188,14 @@ p {
 
 .btn-primary:active {
   background: var(--accent);
+}
+
+/* Springy press feedback on every button */
+.btn {
+  transition: transform 0.08s ease;
+}
+.btn:active {
+  transform: scale(0.97);
 }
 
 .btn-ghost {
@@ -259,6 +329,81 @@ p {
   font-size: 32px;
   text-align: center;
   padding: 24px;
+}
+
+/* White flash when a photo is captured */
+@keyframes flashFade {
+  from {
+    opacity: 0.9;
+  }
+  to {
+    opacity: 0;
+  }
+}
+
+.cam-flash {
+  position: absolute;
+  inset: 0;
+  background: #fff;
+  pointer-events: none;
+  animation: flashFade 0.18s ease-out forwards;
+}
+
+/* Camera-app style control bar */
+.cam-controls {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.cam-controls .cam-side {
+  flex: 1;
+  display: flex;
+}
+
+.cam-controls .cam-side.right {
+  justify-content: flex-end;
+}
+
+/* The big round shutter button */
+.shutter {
+  width: 74px;
+  height: 74px;
+  border-radius: 50%;
+  border: 4px solid var(--text);
+  background: transparent;
+  padding: 5px;
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  transition: transform 0.08s ease;
+}
+
+.shutter span {
+  display: block;
+  width: 100%;
+  height: 100%;
+  border-radius: 50%;
+  background: var(--text);
+  transition: background 0.15s ease;
+}
+
+.shutter:active {
+  transform: scale(0.92);
+}
+
+.shutter:active span {
+  background: var(--accent);
+}
+
+.cam-stop {
+  padding: 10px 16px;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text);
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  cursor: pointer;
 }
 
 .camera-error {
