@@ -1,99 +1,127 @@
-// Milestone 2 + 3: camera capture with orientation guidance.
-// - Start/Stop the rear camera, live preview, capture to a gallery
-// - Delete a shot, or download it as JPG / PNG
-// - Track which of the six directions you've covered using the motion sensors
-import { useEffect, useState } from 'react';
+// Camera capture with guided, aim-and-hold direction targeting (Milestones 2+3).
+// - Live rear-camera preview with floating direction dots
+// - Aim the reticle at a dot and hold steady → auto-capture
+// - A live environment preview fills in as you go
+// - Gallery with delete + JPG/PNG download
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useCamera } from '../hooks/useCamera';
 import { useOrientation } from '../hooks/useOrientation';
 import { captureFrameToBlob, reencode, downloadBlob } from '../utils/image';
 import { isStandalone } from '../utils/platform';
-import { activeTarget, TARGETS } from '../utils/targets';
+import { projectTargets, TARGETS } from '../utils/targets';
 import type { TargetId } from '../utils/targets';
 import { InstallSteps } from './InstallSteps';
 import { ProximityText } from './ProximityText';
-import { CoverageGuide } from './CoverageGuide';
+import { CaptureOverlay } from './CaptureOverlay';
+import { PreviewMap } from './PreviewMap';
 
 type CaptureScreenProps = {
   onBack: () => void;
 };
 
-// One captured photo held in memory while the screen is open.
 type Shot = {
   id: string;
   blob: Blob;
-  url: string; // object URL for showing the thumbnail
-  target: TargetId | null; // which direction it was aimed at (if known)
-  orientation: { yaw: number; pitch: number; roll: number } | null;
+  url: string;
+  target: TargetId | null;
+  orientation: { yaw: number; pitch: number; roll: number; az: number; el: number } | null;
 };
 
+const DWELL_MS = 900; // how long to hold steady on a target before auto-capture
 const targetLabel = (id: TargetId) =>
   TARGETS.find((t) => t.id === id)?.label ?? id;
 
 export function CaptureScreen({ onBack }: CaptureScreenProps) {
   const { videoRef, status, errorMsg, start, stop } = useCamera();
-  const {
-    status: oriStatus,
-    data: ori,
-    enable: enableOri,
-  } = useOrientation();
+  const { status: oriStatus, data: ori, enable: enableOri } = useOrientation();
 
   const [shots, setShots] = useState<Shot[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [flash, setFlash] = useState(false);
   const [frontOffset, setFrontOffset] = useState<number | null>(null);
   const [done, setDone] = useState<Set<TargetId>>(new Set());
+  const [dwell, setDwell] = useState(0);
   const installed = isStandalone();
+  const isReady = status === 'ready';
 
-  // Release all the thumbnail object URLs when the screen closes.
+  // Keep the latest capture function reachable from timers without stale state.
+  const captureRef = useRef<(t: TargetId | null) => void>(() => {});
+
+  // Clean up thumbnail URLs on unmount.
   useEffect(() => {
     return () => {
       shots.forEach((shot) => URL.revokeObjectURL(shot.url));
     };
-    // We intentionally clean up only on unmount.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // When orientation is first enabled, treat the current heading as "Front".
+  // First time orientation is granted, treat the current heading as "Front".
   useEffect(() => {
     if (oriStatus === 'granted' && frontOffset === null) {
       setFrontOffset(ori.heading);
     }
   }, [oriStatus, frontOffset, ori.heading]);
 
-  // Heading relative to the calibrated front, and the target we're aimed at.
+  // Camera direction relative to the calibrated front.
   const headingRel =
-    frontOffset == null
-      ? ori.heading
-      : ((ori.heading - frontOffset) % 360 + 360) % 360;
-  const active =
-    oriStatus === 'granted' ? activeTarget(headingRel, ori.pitch) : null;
+    frontOffset == null ? ori.heading : ((ori.heading - frontOffset) % 360 + 360) % 360;
+  const elevation = Math.max(-90, Math.min(90, ori.pitch - 90));
 
-  const capture = async () => {
+  // Where every dot is and which one we're locked onto.
+  const guiding = isReady && oriStatus === 'granted' && frontOffset !== null;
+  const { views, aligned } = useMemo(() => {
+    if (!guiding) return { views: [], aligned: null };
+    return projectTargets(headingRel, elevation, done);
+  }, [guiding, headingRel, elevation, done]);
+
+  const capture = (target: TargetId | null) => {
     const video = videoRef.current;
     if (!video) return;
-    // Quick white flash for tactile "shutter" feedback.
     setFlash(true);
     window.setTimeout(() => setFlash(false), 180);
 
-    const blob = await captureFrameToBlob(video);
-    if (!blob) return;
-
-    const target = active;
-    const shot: Shot = {
-      id: crypto.randomUUID(),
-      blob,
-      url: URL.createObjectURL(blob),
-      target,
-      orientation:
-        oriStatus === 'granted'
-          ? { yaw: ori.yaw, pitch: ori.pitch, roll: ori.roll }
-          : null,
-    };
-    setShots((prev) => [shot, ...prev]);
-    if (target) {
-      setDone((prev) => new Set(prev).add(target));
-    }
+    captureFrameToBlob(video).then((blob) => {
+      if (!blob) return;
+      const shot: Shot = {
+        id: crypto.randomUUID(),
+        blob,
+        url: URL.createObjectURL(blob),
+        target,
+        orientation:
+          oriStatus === 'granted'
+            ? { yaw: ori.yaw, pitch: ori.pitch, roll: ori.roll, az: headingRel, el: elevation }
+            : null,
+      };
+      setShots((prev) => [shot, ...prev]);
+      if (target) {
+        setDone((prev) => new Set(prev).add(target));
+        navigator.vibrate?.(30);
+      }
+    });
   };
+  captureRef.current = capture;
+
+  // Auto-capture: while locked on an undone target, fill the dwell ring; when
+  // it completes, take the shot. Moving off the target resets it.
+  useEffect(() => {
+    if (!aligned) {
+      setDwell(0);
+      return;
+    }
+    let rafId = 0;
+    const t0 = performance.now();
+    const loop = () => {
+      const p = Math.min(1, (performance.now() - t0) / DWELL_MS);
+      setDwell(p);
+      if (p >= 1) {
+        captureRef.current(aligned);
+      } else {
+        rafId = requestAnimationFrame(loop);
+      }
+    };
+    rafId = requestAnimationFrame(loop);
+    return () => cancelAnimationFrame(rafId);
+  }, [aligned]);
 
   const deleteShot = (id: string) => {
     setShots((prev) => {
@@ -115,7 +143,6 @@ export function CaptureScreen({ onBack }: CaptureScreenProps) {
   };
 
   const selected = shots.find((s) => s.id === selectedId) || null;
-  const isReady = status === 'ready';
 
   return (
     <div className="app-shell">
@@ -129,8 +156,7 @@ export function CaptureScreen({ onBack }: CaptureScreenProps) {
         </div>
       </header>
 
-      {/* Live camera preview (the video is always mounted so the camera
-          hook can attach to it; a placeholder covers it until it's ready). */}
+      {/* Live camera preview with the guided-capture overlay on top. */}
       <div className="camera-view">
         <video
           ref={videoRef}
@@ -146,12 +172,21 @@ export function CaptureScreen({ onBack }: CaptureScreenProps) {
             {(status === 'denied' || status === 'error') && '📷'}
           </div>
         )}
+        {guiding && (
+          <CaptureOverlay
+            views={views}
+            aligned={aligned}
+            dwell={dwell}
+            doneCount={done.size}
+            total={TARGETS.length}
+          />
+        )}
         {flash && <div className="cam-flash" />}
       </div>
 
       {errorMsg && <p className="camera-error">{errorMsg}</p>}
 
-      {/* Controls change with the camera state. */}
+      {/* Controls */}
       {isReady ? (
         <div className="cam-controls">
           <div className="cam-side">
@@ -159,14 +194,16 @@ export function CaptureScreen({ onBack }: CaptureScreenProps) {
               Stop
             </button>
           </div>
-          <button
-            className="shutter"
-            onClick={capture}
-            aria-label="Capture photo"
-          >
+          <button className="shutter" onClick={() => capture(aligned)} aria-label="Capture photo">
             <span />
           </button>
-          <div className="cam-side right" />
+          <div className="cam-side right">
+            {oriStatus === 'granted' && (
+              <button className="cam-stop" onClick={() => setFrontOffset(ori.heading)}>
+                Set Front
+              </button>
+            )}
+          </div>
         </div>
       ) : (
         <button
@@ -182,49 +219,66 @@ export function CaptureScreen({ onBack }: CaptureScreenProps) {
         </button>
       )}
 
-      {/* Orientation guidance (Milestone 3) */}
-      {isReady &&
-        (oriStatus === 'granted' ? (
-          <CoverageGuide
-            data={ori}
-            frontOffset={frontOffset}
-            active={active}
-            done={done}
-            onSetFront={() => setFrontOffset(ori.heading)}
-          />
-        ) : (
-          <section className="card">
-            <h2>
-              🧭 <ProximityText>Orientation guidance</ProximityText>
-            </h2>
-            {oriStatus === 'unsupported' ? (
-              <p>
-                This device doesn’t report orientation, so direction guidance
-                isn’t available. You can still capture photos freely.
+      {/* Prompt to enable orientation (only relevant once the camera is on). */}
+      {isReady && oriStatus !== 'granted' && (
+        <section className="card">
+          <h2>
+            🧭 <ProximityText>Guided capture</ProximityText>
+          </h2>
+          {oriStatus === 'unsupported' ? (
+            <p>
+              This device doesn’t report orientation, so the aiming guide isn’t
+              available. You can still capture photos with the shutter button.
+            </p>
+          ) : oriStatus === 'denied' ? (
+            <>
+              <p className="camera-error">
+                Motion access was blocked. Enable it in Safari settings, then
+                try again.
               </p>
-            ) : oriStatus === 'denied' ? (
-              <>
-                <p className="camera-error">
-                  Motion access was blocked. Enable it in Safari settings, then
-                  try again.
-                </p>
-                <button className="btn btn-ghost" onClick={enableOri}>
-                  Try Again
-                </button>
-              </>
-            ) : (
-              <>
-                <p>
-                  Turn on motion sensors for a live compass that tracks all six
-                  directions as you capture them.
-                </p>
-                <button className="btn btn-ghost" onClick={enableOri}>
-                  Enable orientation
-                </button>
-              </>
-            )}
-          </section>
-        ))}
+              <button className="btn btn-ghost" onClick={enableOri}>
+                Try Again
+              </button>
+            </>
+          ) : (
+            <>
+              <p>
+                Turn on motion sensors to see floating direction targets. Aim the
+                center ring at each one and hold steady — it captures
+                automatically.
+              </p>
+              <button className="btn btn-ghost" onClick={enableOri}>
+                Enable guided capture
+              </button>
+            </>
+          )}
+        </section>
+      )}
+
+      {/* Live environment preview that fills in as you capture. */}
+      {guiding && shots.some((s) => s.orientation) && (
+        <section className="card">
+          <h2>
+            <ProximityText>Live preview</ProximityText>
+          </h2>
+          <PreviewMap shots={shots} />
+          <div className="targets">
+            {TARGETS.map((t) => {
+              const isDone = done.has(t.id);
+              const isActive = aligned === t.id;
+              return (
+                <div
+                  key={t.id}
+                  className={`target ${isDone ? 'is-done' : ''} ${isActive ? 'is-active' : ''}`}
+                >
+                  <span className="target__icon">{isDone ? '✅' : t.icon}</span>
+                  <span className="target__label">{t.label}</span>
+                </div>
+              );
+            })}
+          </div>
+        </section>
+      )}
 
       {/* Thumbnail gallery */}
       {shots.length > 0 && (
@@ -263,16 +317,10 @@ export function CaptureScreen({ onBack }: CaptureScreenProps) {
             <div className="shot-actions">
               <span className="note">Download selected photo:</span>
               <div className="btn-row">
-                <button
-                  className="btn btn-ghost"
-                  onClick={() => download(selected, 'jpg')}
-                >
+                <button className="btn btn-ghost" onClick={() => download(selected, 'jpg')}>
                   ⬇️ JPG
                 </button>
-                <button
-                  className="btn btn-ghost"
-                  onClick={() => download(selected, 'png')}
-                >
+                <button className="btn btn-ghost" onClick={() => download(selected, 'png')}>
                   ⬇️ PNG
                 </button>
               </div>
