@@ -3,7 +3,7 @@
 // `open` prop toggling CSS classes, so the animation is pure CSS.
 import { ProximityText } from './ProximityText';
 
-export type NavTarget = 'home' | 'simplyhdri';
+export type NavTarget = 'home' | 'simplyhdri' | 'about';
 
 type Item = {
   label: string;
@@ -15,7 +15,7 @@ type Item = {
 const ITEMS: Item[] = [
   { label: 'Home', target: 'home' },
   { label: 'SimplyHDRI', target: 'simplyhdri', hint: '360° maps & HDRIs' },
-  { label: 'About Us', hint: 'Coming soon', disabled: true },
+  { label: 'About Me', target: 'about', hint: 'The story & a game' },
   { label: 'More tools coming', hint: 'Auto-rigger & more', disabled: true },
 ];
 

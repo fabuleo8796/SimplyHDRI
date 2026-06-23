@@ -2,13 +2,14 @@ import { useState } from 'react';
 import { Home } from './components/Home';
 import { SimplyHdri } from './components/SimplyHdri';
 import { CaptureScreen } from './components/CaptureScreen';
+import { About } from './components/About';
 import { NavBar } from './components/NavBar';
 import { SideMenu } from './components/SideMenu';
 import type { NavTarget } from './components/SideMenu';
 import DotGrid from './components/DotGrid';
 import ClickSpark from './components/ClickSpark';
 
-type Screen = 'home' | 'simplyhdri' | 'envmap';
+type Screen = 'home' | 'simplyhdri' | 'envmap' | 'about';
 
 function App() {
   const [screen, setScreen] = useState<Screen>('home');
@@ -56,6 +57,7 @@ function App() {
       {screen === 'envmap' && (
         <CaptureScreen onBack={() => setScreen('simplyhdri')} />
       )}
+      {screen === 'about' && <About onBack={() => setScreen('home')} />}
     </ClickSpark>
   );
 }
