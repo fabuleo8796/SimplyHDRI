@@ -1,6 +1,7 @@
 // Generates the app icons as PNG files with zero external dependencies.
-// It draws a glossy "environment sphere" on a dark gradient — a simple,
-// on-theme icon for an environment-map app. Run with: node scripts/generate-icons.mjs
+// Draws the SimplyVoxel mark: a clean isometric voxel (cube) in the site's blue
+// family on a dark, full-bleed square (so iOS/Android can mask it into a
+// squircle). Run with: node scripts/generate-icons.mjs
 import zlib from 'node:zlib';
 import { writeFileSync, mkdirSync } from 'node:fs';
 
@@ -51,43 +52,57 @@ function makePNG(size, pixelFn) {
   return Buffer.concat([sig, chunk('IHDR', ihdr), chunk('IDAT', idat), chunk('IEND', Buffer.alloc(0))]);
 }
 
-// --- Icon artwork ------------------------------------------------------------
-const mix = (a, b, t) => Math.round(a + (b - a) * t);
+// --- Icon artwork: isometric voxel -------------------------------------------
+// Geometry in normalised [0,1] coords (matches public/logo.svg), so it scales
+// crisply to any icon size.
+const T = [0.5, 0.254];
+const RM = [0.734, 0.371];
+const LM = [0.266, 0.371];
+const C = [0.5, 0.488];
+const B = [0.5, 0.746];
+const RL = [0.734, 0.629];
+const LL = [0.266, 0.629];
+
+const FACE_TOP = [T, RM, C, LM];
+const FACE_LEFT = [LM, LL, B, C];
+const FACE_RIGHT = [RM, RL, B, C];
+
+const COL_TOP = [125, 211, 252];   // #7dd3fc  (lit)
+const COL_LEFT = [56, 189, 248];   // #38bdf8  (site accent)
+const COL_RIGHT = [14, 127, 184];  // #0e7fb8  (shaded)
+const COL_BG = [11, 16, 32];       // #0b1020
+
+function inPoly(px, py, poly) {
+  let inside = false;
+  for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+    const xi = poly[i][0], yi = poly[i][1];
+    const xj = poly[j][0], yj = poly[j][1];
+    if (yi > py !== yj > py && px < ((xj - xi) * (py - yi)) / (yj - yi) + xi)
+      inside = !inside;
+  }
+  return inside;
+}
+
+function sampleColor(nx, ny) {
+  if (inPoly(nx, ny, FACE_TOP)) return COL_TOP;
+  if (inPoly(nx, ny, FACE_LEFT)) return COL_LEFT;
+  if (inPoly(nx, ny, FACE_RIGHT)) return COL_RIGHT;
+  return COL_BG;
+}
+
+const SS = 4; // supersampling for smooth anti-aliased edges
 
 function iconPixel(x, y, size) {
-  const cx = size / 2;
-  const cy = size / 2;
-  const ny = y / size;
-
-  // Dark vertical gradient background
-  let r = mix(17, 8, ny);
-  let g = mix(24, 14, ny);
-  let b = mix(58, 31, ny);
-
-  const dx = x - cx;
-  const dy = y - cy;
-  const dist = Math.sqrt(dx * dx + dy * dy);
-  const R = size * 0.34;
-
-  if (dist <= R + 1) {
-    const t = Math.min(1, dist / R); // 0 at center, 1 at edge
-    // Sphere base color: cyan center fading to deep blue at the rim
-    let sr = mix(56, 12, t);
-    let sg = mix(189, 40, t);
-    let sb = mix(248, 120, t);
-    // Specular highlight toward the top-left
-    const hlDist = Math.sqrt((dx + R * 0.45) ** 2 + (dy + R * 0.45) ** 2);
-    const hl = Math.max(0, 1 - hlDist / (R * 0.9));
-    sr = mix(sr, 255, hl * 0.7);
-    sg = mix(sg, 255, hl * 0.7);
-    sb = mix(sb, 255, hl * 0.7);
-    // Soft anti-aliased edge
-    const edge = Math.max(0, Math.min(1, (R - dist) / 2));
-    r = mix(r, sr, edge);
-    g = mix(g, sg, edge);
-    b = mix(b, sb, edge);
-  }
-  return [r, g, b, 255];
+  let r = 0, g = 0, b = 0;
+  for (let i = 0; i < SS; i++)
+    for (let j = 0; j < SS; j++) {
+      const nx = (x + (i + 0.5) / SS) / size;
+      const ny = (y + (j + 0.5) / SS) / size;
+      const c = sampleColor(nx, ny);
+      r += c[0]; g += c[1]; b += c[2];
+    }
+  const n = SS * SS;
+  return [Math.round(r / n), Math.round(g / n), Math.round(b / n), 255];
 }
 
 // --- Write the files ---------------------------------------------------------

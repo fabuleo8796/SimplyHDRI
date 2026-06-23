@@ -1,0 +1,8 @@
+<svg width="512" height="512" viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="SimplyVoxel">
+  <rect width="512" height="512" fill="#0b1020"/>
+  <!-- Isometric voxel in the site's blue family (#38bdf8). Full-bleed square so
+       iOS / Android can mask it into a squircle. -->
+  <polygon points="256,130 376,190 256,250 136,190" fill="#7dd3fc" stroke="#0b1020" stroke-width="3" stroke-linejoin="round"/>
+  <polygon points="136,190 136,322 256,382 256,250" fill="#38bdf8" stroke="#0b1020" stroke-width="3" stroke-linejoin="round"/>
+  <polygon points="376,190 376,322 256,382 256,250" fill="#0e7fb8" stroke="#0b1020" stroke-width="3" stroke-linejoin="round"/>
+</svg>
