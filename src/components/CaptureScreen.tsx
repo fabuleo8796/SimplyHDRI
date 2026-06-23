@@ -5,14 +5,18 @@
 import { useEffect, useRef, useState } from 'react';
 import { useCamera } from '../hooks/useCamera';
 import { useOrientation } from '../hooks/useOrientation';
-import { captureFrameToBlob, reencode, downloadBlob } from '../utils/image';
+import { captureFrameToBlob, reencode, saveImage } from '../utils/image';
 import { buildEquirect } from '../utils/stitch';
-import { isStandalone } from '../utils/platform';
+import { isStandalone, isMobile } from '../utils/platform';
 import { projectTargets, TARGET_POINTS } from '../utils/targets';
+import { applyAz, applyEl } from '../utils/calibration';
+import type { Calibration } from '../utils/calibration';
 import { InstallSteps } from './InstallSteps';
 import { ProximityText } from './ProximityText';
 import { CaptureOverlay } from './CaptureOverlay';
+import { CalibrationStep } from './CalibrationStep';
 import { PreviewMap } from './PreviewMap';
+import { DeviceNotice } from './DeviceNotice';
 
 type CaptureScreenProps = {
   onBack: () => void;
@@ -27,6 +31,10 @@ type Shot = {
 };
 
 const TOTAL = TARGET_POINTS.length;
+// In guided mode, require a reasonably complete sweep before building — a
+// sparse scan makes a mostly-black map, and black = no light in Blender.
+// (Tune this single number to make the requirement looser or stricter.)
+const MIN_COVERAGE = 0.6;
 
 export function CaptureScreen({ onBack }: CaptureScreenProps) {
   const { videoRef, status, errorMsg, start, stop } = useCamera();
@@ -35,7 +43,7 @@ export function CaptureScreen({ onBack }: CaptureScreenProps) {
   const [shots, setShots] = useState<Shot[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [flash, setFlash] = useState(false);
-  const [frontOffset, setFrontOffset] = useState<number | null>(null);
+  const [calibration, setCalibration] = useState<Calibration | null>(null);
   const [done, setDone] = useState<Set<string>>(new Set());
   const [building, setBuilding] = useState(false);
   const [buildProgress, setBuildProgress] = useState(0);
@@ -43,13 +51,26 @@ export function CaptureScreen({ onBack }: CaptureScreenProps) {
   const [panoBlob, setPanoBlob] = useState<Blob | null>(null);
   const [buildError, setBuildError] = useState('');
   const installed = isStandalone();
+  const onPhone = isMobile();
   const isReady = status === 'ready';
   const guiding = isReady && oriStatus === 'granted';
+  // Guided scanning only begins once the six anchors are calibrated.
+  const calibrated = calibration != null;
+  const calibrating = guiding && !calibrated;
+  const scanning = guiding && calibrated;
+
+  // Coverage = how many distinct target dots have been captured. We gate the
+  // build button on this when guided aiming is available.
+  const guidedMode = oriStatus === 'granted';
+  const coverage = done.size;
+  const coverageRatio = TOTAL ? coverage / TOTAL : 0;
+  const coveragePct = Math.round(coverageRatio * 100);
+  const enoughCoverage = !guidedMode || coverageRatio >= MIN_COVERAGE;
 
   // Live refs the overlay's loop reads (no re-render on sensor ticks).
-  const frontOffsetRef = useRef<number | null>(null);
+  const calibrationRef = useRef<Calibration | null>(null);
   const doneRef = useRef<Set<string>>(done);
-  frontOffsetRef.current = frontOffset;
+  calibrationRef.current = calibration;
   doneRef.current = done;
 
   // Clean up thumbnail URLs on unmount.
@@ -67,6 +88,28 @@ export function CaptureScreen({ onBack }: CaptureScreenProps) {
     };
   }, [panoUrl]);
 
+  // On a computer there's no rear camera or motion sensors, so capturing can't
+  // work here. Instead of a dead camera box, point the user to their phone.
+  if (!onPhone) {
+    return (
+      <div className="app-shell">
+        <header className="brand">
+          <img src="/pwa-192x192.png" alt="SimplyHDRI icon" />
+          <div>
+            <h1>
+              <ProximityText>Capture</ProximityText>
+            </h1>
+            <div className="tagline">Use your iPhone for this</div>
+          </div>
+        </header>
+        <DeviceNotice />
+        <button className="btn btn-ghost" onClick={onBack}>
+          ← Back
+        </button>
+      </div>
+    );
+  }
+
   const startScan = () => {
     start();
     if (oriStatus !== 'granted') enableOri();
@@ -79,8 +122,9 @@ export function CaptureScreen({ onBack }: CaptureScreenProps) {
     window.setTimeout(() => setFlash(false), 180);
 
     const d = dataRef.current;
-    const front = frontOffset ?? d.heading;
-    const az = (((d.heading - front) % 360) + 360) % 360;
+    const cal = calibration;
+    const az = cal ? applyAz(cal, d.heading) : (((d.heading % 360) + 360) % 360);
+    const el = cal ? applyEl(cal, d.elevation) : d.elevation;
 
     captureFrameToBlob(video).then((blob) => {
       if (!blob) return;
@@ -91,7 +135,7 @@ export function CaptureScreen({ onBack }: CaptureScreenProps) {
         target,
         orientation:
           oriStatus === 'granted'
-            ? { yaw: d.yaw, pitch: d.pitch, roll: d.roll, az, el: d.elevation }
+            ? { yaw: d.yaw, pitch: d.pitch, roll: d.roll, az, el }
             : null,
       };
       setShots((prev) => [shot, ...prev]);
@@ -102,16 +146,16 @@ export function CaptureScreen({ onBack }: CaptureScreenProps) {
     });
   };
 
-  // Manual shutter: capture whatever dot we're nearest to (if guiding).
+  // Manual shutter: capture whatever dot we're nearest to (if scanning).
   const handleShutter = () => {
-    if (!guiding) {
+    if (!scanning || !calibration) {
       capture(null);
       return;
     }
     const d = dataRef.current;
-    const front = frontOffset ?? d.heading;
-    const az = (((d.heading - front) % 360) + 360) % 360;
-    const { aligned } = projectTargets(az, d.elevation, done);
+    const az = applyAz(calibration, d.heading);
+    const el = applyEl(calibration, d.elevation);
+    const { aligned } = projectTargets(az, el, done);
     capture(aligned);
   };
 
@@ -128,9 +172,9 @@ export function CaptureScreen({ onBack }: CaptureScreenProps) {
     const stamp = Date.now();
     if (format === 'png') {
       const png = await reencode(shot.blob, 'image/png');
-      downloadBlob(png, `simplyhdri-${stamp}.png`);
+      await saveImage(png, `simplyhdri-${stamp}.png`);
     } else {
-      downloadBlob(shot.blob, `simplyhdri-${stamp}.jpg`);
+      await saveImage(shot.blob, `simplyhdri-${stamp}.jpg`);
     }
   };
 
@@ -166,9 +210,9 @@ export function CaptureScreen({ onBack }: CaptureScreenProps) {
     const stamp = Date.now();
     if (format === 'png') {
       const png = await reencode(panoBlob, 'image/png');
-      downloadBlob(png, `simplyhdri-pano-${stamp}.png`);
+      await saveImage(png, `simplyhdri-pano-${stamp}.png`);
     } else {
-      downloadBlob(panoBlob, `simplyhdri-pano-${stamp}.jpg`);
+      await saveImage(panoBlob, `simplyhdri-pano-${stamp}.jpg`);
     }
   };
 
@@ -202,14 +246,13 @@ export function CaptureScreen({ onBack }: CaptureScreenProps) {
             {(status === 'denied' || status === 'error') && '📷'}
           </div>
         )}
-        {guiding && (
+        {scanning && (
           <CaptureOverlay
             dataRef={dataRef}
-            frontOffsetRef={frontOffsetRef}
+            calibrationRef={calibrationRef}
             doneRef={doneRef}
             total={TOTAL}
             onCapture={capture}
-            onSetFront={(h) => setFrontOffset(h)}
           />
         )}
         {flash && <div className="cam-flash" />}
@@ -217,28 +260,38 @@ export function CaptureScreen({ onBack }: CaptureScreenProps) {
 
       {errorMsg && <p className="camera-error">{errorMsg}</p>}
 
+      {/* Required calibration before any scanning starts. */}
+      {calibrating && (
+        <CalibrationStep dataRef={dataRef} onComplete={setCalibration} />
+      )}
+
       {/* Controls */}
       {isReady ? (
-        <div className="cam-controls">
-          <div className="cam-side">
+        calibrating ? (
+          <div className="cam-controls">
             <button className="cam-stop" onClick={stop}>
               Stop
             </button>
           </div>
-          <button className="shutter" onClick={handleShutter} aria-label="Capture photo">
-            <span />
-          </button>
-          <div className="cam-side right">
-            {oriStatus === 'granted' && (
-              <button
-                className="cam-stop"
-                onClick={() => setFrontOffset(dataRef.current.heading)}
-              >
-                Set Front
+        ) : (
+          <div className="cam-controls">
+            <div className="cam-side">
+              <button className="cam-stop" onClick={stop}>
+                Stop
               </button>
-            )}
+            </div>
+            <button className="shutter" onClick={handleShutter} aria-label="Capture photo">
+              <span />
+            </button>
+            <div className="cam-side right">
+              {scanning && (
+                <button className="cam-stop" onClick={() => setCalibration(null)}>
+                  Recalibrate
+                </button>
+              )}
+            </div>
           </div>
-        </div>
+        )
       ) : (
         <button
           className="btn btn-primary"
@@ -273,7 +326,7 @@ export function CaptureScreen({ onBack }: CaptureScreenProps) {
           shutter button.
         </p>
       )}
-      {guiding && (
+      {scanning && (
         <p className="note scan-tip">
           Sweep around and park the ring on every dot — the more you fill, the
           less black in your map.
@@ -312,9 +365,37 @@ export function CaptureScreen({ onBack }: CaptureScreenProps) {
               <span className="note">Building… {Math.round(buildProgress * 100)}%</span>
             </div>
           ) : (
-            <button className="btn btn-primary" onClick={buildPano}>
-              🧩 Build Environment Map
-            </button>
+            <>
+              {guidedMode && (
+                <div className="build-progress">
+                  <div className="build-bar">
+                    <div
+                      className="build-bar__fill"
+                      style={{ width: `${coveragePct}%` }}
+                    />
+                  </div>
+                  <span className="note">
+                    Coverage: {coverage} / {TOTAL} dots ({coveragePct}%)
+                  </span>
+                </div>
+              )}
+              <button
+                className="btn btn-primary"
+                onClick={buildPano}
+                disabled={!enoughCoverage}
+              >
+                {enoughCoverage
+                  ? '🧩 Build Environment Map'
+                  : `🔒 Complete the scan to build (${coveragePct}%)`}
+              </button>
+              {!enoughCoverage && (
+                <p className="note">
+                  Park the ring on more dots first — aim for about{' '}
+                  {Math.round(MIN_COVERAGE * 100)}% so your map isn’t full of
+                  black gaps (black = no light in Blender).
+                </p>
+              )}
+            </>
           )}
 
           {buildError && <p className="camera-error">{buildError}</p>}
@@ -387,7 +468,7 @@ export function CaptureScreen({ onBack }: CaptureScreenProps) {
       )}
 
       {/* Gentle install hint on the web (the camera still works in Safari). */}
-      {!installed && (
+      {!installed && onPhone && (
         <details className="install-tip">
           <summary>
             💡 <ProximityText>Tip: add SimplyHDRI to your Home Screen</ProximityText>

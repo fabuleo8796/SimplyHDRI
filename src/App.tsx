@@ -1,16 +1,20 @@
 import { useState } from 'react';
-import { LandingPage } from './components/LandingPage';
+import { Home } from './components/Home';
+import { SimplyHdri } from './components/SimplyHdri';
 import { CaptureScreen } from './components/CaptureScreen';
+import { NavBar } from './components/NavBar';
+import { SideMenu } from './components/SideMenu';
+import type { NavTarget } from './components/SideMenu';
 import DotGrid from './components/DotGrid';
 import ClickSpark from './components/ClickSpark';
 
-// We only have two screens so far, so a simple string is enough to track
-// which one is showing. (We'll switch to a proper router only if we ever
-// truly need one.)
-type Screen = 'home' | 'capture';
+type Screen = 'home' | 'simplyhdri' | 'envmap';
 
 function App() {
   const [screen, setScreen] = useState<Screen>('home');
+  const [menuOpen, setMenuOpen] = useState(false);
+
+  const navigate = (target: NavTarget) => setScreen(target);
 
   return (
     <ClickSpark
@@ -33,10 +37,24 @@ function App() {
         returnDuration={1.5}
       />
 
-      {screen === 'capture' ? (
-        <CaptureScreen onBack={() => setScreen('home')} />
-      ) : (
-        <LandingPage onStartCapture={() => setScreen('capture')} />
+      <NavBar onMenu={() => setMenuOpen(true)} onHome={() => setScreen('home')} />
+      <SideMenu
+        open={menuOpen}
+        onClose={() => setMenuOpen(false)}
+        onNavigate={navigate}
+      />
+
+      {screen === 'home' && (
+        <Home onOpenSimplyHdri={() => setScreen('simplyhdri')} />
+      )}
+      {screen === 'simplyhdri' && (
+        <SimplyHdri
+          onEnvMap={() => setScreen('envmap')}
+          onBack={() => setScreen('home')}
+        />
+      )}
+      {screen === 'envmap' && (
+        <CaptureScreen onBack={() => setScreen('simplyhdri')} />
       )}
     </ClickSpark>
   );

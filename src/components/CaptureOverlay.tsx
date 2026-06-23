@@ -7,14 +7,15 @@ import type { RefObject } from 'react';
 import type { OrientationData } from '../hooks/useOrientation';
 import { projectTargets } from '../utils/targets';
 import type { TargetView } from '../utils/targets';
+import { applyAz, applyEl } from '../utils/calibration';
+import type { Calibration } from '../utils/calibration';
 
 type CaptureOverlayProps = {
   dataRef: RefObject<OrientationData>;
-  frontOffsetRef: RefObject<number | null>;
+  calibrationRef: RefObject<Calibration | null>;
   doneRef: RefObject<Set<string>>;
   total: number;
   onCapture: (id: string) => void;
-  onSetFront: (heading: number) => void;
 };
 
 const RING_R = 48;
@@ -23,11 +24,10 @@ const DWELL_MS = 900;
 
 export function CaptureOverlay({
   dataRef,
-  frontOffsetRef,
+  calibrationRef,
   doneRef,
   total,
   onCapture,
-  onSetFront,
 }: CaptureOverlayProps) {
   const [views, setViews] = useState<TargetView[]>([]);
   const [aligned, setAligned] = useState<string | null>(null);
@@ -35,16 +35,14 @@ export function CaptureOverlay({
 
   // Keep callbacks fresh without restarting the loop.
   const onCaptureRef = useRef(onCapture);
-  const onSetFrontRef = useRef(onSetFront);
   onCaptureRef.current = onCapture;
-  onSetFrontRef.current = onSetFront;
 
   useEffect(() => {
     let rafId = 0;
     let dwellTarget: string | null = null;
     let dwellStart = 0;
     let lastFired: string | null = null;
-    let frontRequested = false;
+    let prevAligned: string | null = null; // last frame's lock (for hysteresis)
     // Last emitted values, to avoid re-rendering when nothing moved.
     let lastCamAz = 999;
     let lastEl = 999;
@@ -53,17 +51,23 @@ export function CaptureOverlay({
 
     const loop = () => {
       const d = dataRef.current;
+      const cal = calibrationRef.current;
 
-      // Auto-set "Front" to wherever you're facing on the first frame.
-      if (frontOffsetRef.current == null && !frontRequested) {
-        frontRequested = true;
-        onSetFrontRef.current(d.heading);
-      }
-      const front = frontOffsetRef.current ?? d.heading;
-      const camAz = (((d.heading - front) % 360) + 360) % 360;
+      // Use the calibrated mapping set up before scanning. (Calibration is
+      // required to reach this overlay, so `cal` is always present here.)
+      const camAz = cal
+        ? applyAz(cal, d.heading)
+        : (((d.heading % 360) + 360) % 360);
+      const camEl = cal ? applyEl(cal, d.elevation) : d.elevation;
       const done = doneRef.current ?? new Set<string>();
 
-      const { views: v, aligned: a } = projectTargets(camAz, d.elevation, done);
+      const { views: v, aligned: a } = projectTargets(
+        camAz,
+        camEl,
+        done,
+        prevAligned,
+      );
+      prevAligned = a;
 
       // Aim-and-hold timing.
       const now = performance.now();
@@ -107,7 +111,7 @@ export function CaptureOverlay({
 
     rafId = requestAnimationFrame(loop);
     return () => cancelAnimationFrame(rafId);
-  }, [dataRef, frontOffsetRef, doneRef]);
+  }, [dataRef, calibrationRef, doneRef]);
 
   const doneCount = views.filter((v) => v.done).length;
   const nearest = views.reduce<TargetView | null>(

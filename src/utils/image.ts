@@ -52,7 +52,7 @@ export function reencode(blob: Blob, type: string): Promise<Blob> {
   });
 }
 
-/** Trigger a file download for a blob. */
+/** Trigger a classic file download for a blob (works on desktop browsers). */
 export function downloadBlob(blob: Blob, filename: string) {
   const url = URL.createObjectURL(blob);
   const a = document.createElement('a');
@@ -61,6 +61,44 @@ export function downloadBlob(blob: Blob, filename: string) {
   document.body.appendChild(a);
   a.click();
   a.remove();
-  // Give Safari a moment to start the download before releasing the URL.
-  setTimeout(() => URL.revokeObjectURL(url), 1000);
+  // Large files (a lossless PNG map can be several MB) need time to flush to
+  // disk before we release the URL — too-early revoke can truncate the file.
+  setTimeout(() => URL.revokeObjectURL(url), 60_000);
+}
+
+type ShareNavigator = Navigator & {
+  canShare?: (data: { files?: File[] }) => boolean;
+  share?: (data: { files?: File[]; title?: string; text?: string }) => Promise<void>;
+};
+
+/**
+ * Save an image the way the current device actually supports.
+ *
+ * On iPhone the `download` attribute is unreliable — Safari tends to open the
+ * image inline instead of saving a real file, which is why a map could look
+ * fine on screen yet fail to import into Blender. The Web Share API
+ * (`navigator.share` with files) is the correct iOS path: it opens the share
+ * sheet so the user can pick **Save to Files** and get a genuine .png/.jpg they
+ * can move to their computer. Everywhere else we fall back to a normal download.
+ */
+export async function saveImage(blob: Blob, filename: string): Promise<void> {
+  const nav = navigator as ShareNavigator;
+  const file = new File([blob], filename, { type: blob.type });
+
+  if (
+    typeof nav.share === 'function' &&
+    typeof nav.canShare === 'function' &&
+    nav.canShare({ files: [file] })
+  ) {
+    try {
+      await nav.share({ files: [file], title: 'SimplyHDRI environment map' });
+      return;
+    } catch (err) {
+      // The user dismissed the share sheet — that's a cancel, not an error.
+      if ((err as Error)?.name === 'AbortError') return;
+      // Anything else: fall through to a plain download.
+    }
+  }
+
+  downloadBlob(blob, filename);
 }

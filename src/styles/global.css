@@ -217,6 +217,16 @@ p {
   transform: scale(0.97);
 }
 
+/* Disabled buttons (e.g. build is locked until the scan is complete) */
+.btn:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+  filter: grayscale(0.6);
+}
+.btn:disabled:active {
+  transform: none;
+}
+
 .btn-ghost {
   background: var(--surface-2);
   color: var(--text);
@@ -308,6 +318,22 @@ p {
   font-size: 13px;
   color: var(--text-dim);
   line-height: 1.4;
+}
+
+/* ---- Desktop "open on your phone" notice ---- */
+.device-notice__url {
+  margin: 12px 0;
+  padding: 12px 14px;
+  border-radius: 12px;
+  background: var(--surface-2);
+  border: 1px dashed var(--accent);
+  color: var(--accent);
+  font-weight: 700;
+  font-size: 16px;
+  text-align: center;
+  word-break: break-all;
+  font-variant-numeric: tabular-nums;
+  user-select: all;
 }
 
 /* ---- Footer ---- */
@@ -885,4 +911,440 @@ p {
   border: 1px solid rgba(56, 189, 248, 0.35);
   padding: 4px 10px;
   border-radius: 999px;
+}
+
+/* ================= SimplyTools suite shell ================= */
+
+/* Leave room below the sticky nav bar (the bar carries the notch inset). */
+.app-shell {
+  padding-top: 16px;
+}
+
+/* ---- Top nav bar ---- */
+.navbar {
+  position: sticky;
+  top: 0;
+  z-index: 50;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: max(8px, env(safe-area-inset-top)) 16px 8px;
+  background: rgba(11, 16, 32, 0.72);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  border-bottom: 1px solid var(--border);
+}
+
+.navbar__brand {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 4px;
+  background: none;
+  border: none;
+  color: var(--text);
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+}
+
+.navbar__brand img {
+  width: 30px;
+  height: 30px;
+  border-radius: 8px;
+}
+
+.navbar__name {
+  font-weight: 800;
+  font-size: 18px;
+  letter-spacing: -0.02em;
+}
+
+.navbar__menu {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  width: 42px;
+  height: 42px;
+  border-radius: 12px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  cursor: pointer;
+  -webkit-tap-highlight-color: transparent;
+  transition: transform 0.08s ease;
+}
+.navbar__menu:active {
+  transform: scale(0.94);
+}
+.navbar__menu span {
+  display: block;
+  width: 18px;
+  height: 2px;
+  border-radius: 2px;
+  background: var(--text);
+}
+
+/* ---- Slide-in side menu ---- */
+.menu {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  pointer-events: none;
+}
+.menu.is-open {
+  pointer-events: auto;
+}
+
+.menu__backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(4, 7, 16, 0.6);
+  opacity: 0;
+  transition: opacity 0.3s ease;
+}
+.menu.is-open .menu__backdrop {
+  opacity: 1;
+}
+
+.menu__panel {
+  position: absolute;
+  top: 0;
+  right: 0;
+  height: 100%;
+  width: min(82vw, 320px);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: max(16px, env(safe-area-inset-top)) 18px
+    max(16px, env(safe-area-inset-bottom));
+  background: linear-gradient(180deg, var(--surface), var(--bg-bottom));
+  border-left: 1px solid var(--border);
+  box-shadow: -20px 0 60px rgba(0, 0, 0, 0.5);
+  transform: translateX(100%);
+  transition: transform 0.32s cubic-bezier(0.22, 1, 0.36, 1);
+}
+.menu.is-open .menu__panel {
+  transform: translateX(0);
+}
+
+.menu__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+.menu__title {
+  font-weight: 800;
+  font-size: 20px;
+}
+.menu__close {
+  width: 38px;
+  height: 38px;
+  border-radius: 10px;
+  font-size: 24px;
+  line-height: 1;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  color: var(--text);
+  cursor: pointer;
+}
+
+.menu__list {
+  list-style: none;
+  margin: 8px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.menu__item-wrap {
+  opacity: 0;
+  transform: translateX(16px);
+}
+.menu.is-open .menu__item-wrap {
+  animation: menuItemIn 0.4s ease forwards;
+  animation-delay: calc(0.12s + var(--i) * 0.06s);
+}
+@keyframes menuItemIn {
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+
+.menu__item {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  width: 100%;
+  text-align: left;
+  padding: 14px 16px;
+  border-radius: 14px;
+  background: var(--surface-2);
+  border: 1px solid var(--border);
+  color: var(--text);
+  cursor: pointer;
+  transition: transform 0.08s ease, border-color 0.2s ease;
+}
+.menu__item:active {
+  transform: scale(0.98);
+}
+.menu__item.is-disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+.menu__item-label {
+  font-weight: 700;
+  font-size: 16px;
+}
+.menu__item-hint {
+  font-size: 12px;
+  color: var(--text-dim);
+}
+.menu__foot {
+  margin-top: auto;
+  font-size: 12px;
+  color: var(--text-dim);
+  text-align: center;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .menu__panel,
+  .menu__backdrop {
+    transition: none;
+  }
+  .menu.is-open .menu__item-wrap {
+    animation: none;
+    opacity: 1;
+    transform: none;
+  }
+}
+
+/* ---- Hero ---- */
+.hero {
+  text-align: center;
+  padding: 8px 0 4px;
+}
+.hero__title {
+  font-size: 34px;
+  font-weight: 800;
+  letter-spacing: -0.03em;
+  margin: 0;
+}
+.hero--sub .hero__title {
+  font-size: 28px;
+}
+.hero__tag {
+  margin-top: 8px;
+  font-size: 15px;
+  color: var(--text-dim);
+}
+
+/* ---- Tool grid (home) & choice grid (SimplyHDRI) ---- */
+.tool-grid,
+.choice-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.tool-card,
+.choice-card {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: 100%;
+  text-align: left;
+  padding: 22px;
+  border: none;
+  border-radius: 22px;
+  background: transparent;
+  color: var(--text);
+  cursor: pointer;
+  transition: transform 0.1s ease;
+}
+.tool-card:active,
+.choice-card:active {
+  transform: scale(0.985);
+}
+.tool-card:disabled,
+.tool-card.is-soon {
+  cursor: default;
+}
+
+.tool-card__emoji,
+.choice-card__emoji {
+  font-size: 32px;
+}
+.tool-card__name,
+.choice-card__name {
+  font-size: 20px;
+  font-weight: 800;
+}
+.tool-card__desc,
+.choice-card__desc {
+  font-size: 14px;
+  color: var(--text-dim);
+  line-height: 1.45;
+}
+.tool-card__cta {
+  margin-top: 6px;
+  font-weight: 700;
+  font-size: 14px;
+  color: var(--accent);
+}
+.tool-card.is-soon .tool-card__cta {
+  color: var(--text-dim);
+}
+
+.choice-card__badge {
+  align-self: flex-start;
+  margin-top: 6px;
+  font-size: 12px;
+  font-weight: 700;
+  padding: 3px 10px;
+  border-radius: 999px;
+}
+.choice-card__badge--ready {
+  background: rgba(34, 197, 94, 0.18);
+  color: #4ade80;
+}
+.choice-card__badge--soon {
+  background: rgba(251, 146, 60, 0.16);
+  color: #fbbf24;
+}
+.card code,
+.choice-card code {
+  background: var(--surface-2);
+  padding: 1px 6px;
+  border-radius: 6px;
+  font-size: 0.9em;
+}
+
+/* ---- BorderGlow ---- */
+.bglow {
+  position: relative;
+  border-radius: var(--bg-radius);
+  isolation: isolate;
+}
+.bglow__glow,
+.bglow__ring {
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  padding: var(--bg-border);
+  background: var(--bg-gradient);
+  /* Mask trick: show only the border-thickness ring, not the fill. */
+  -webkit-mask:
+    linear-gradient(#000 0 0) content-box,
+    linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask-composite: exclude;
+  pointer-events: none;
+}
+.bglow__glow {
+  filter: blur(var(--bg-blur));
+  opacity: var(--bg-glow-op);
+  transition: opacity 0.3s ease;
+}
+.bglow__content {
+  position: relative;
+  border-radius: inherit;
+  background: var(--bg-fill);
+}
+
+/* ---- Calibration step (set Front/Right/Back/Left/Top/Bottom) ---- */
+.calib__active {
+  margin: 12px 0 4px;
+  padding: 14px;
+  border: 1px solid var(--accent);
+  border-radius: var(--radius);
+  background: var(--surface-2);
+}
+.calib__active-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 6px;
+}
+.calib__icon {
+  font-size: 1.4rem;
+}
+.calib__step {
+  font-weight: 600;
+  color: var(--text);
+}
+.calib__instruction {
+  margin: 4px 0 12px;
+  color: var(--text-dim);
+  line-height: 1.4;
+}
+.calib__readout {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+.calib__readout-num {
+  font-size: 2.1rem;
+  font-weight: 700;
+  color: var(--accent);
+  font-variant-numeric: tabular-nums;
+}
+.calib__readout-label {
+  color: var(--text-dim);
+  font-size: 0.85rem;
+}
+.calib__list {
+  list-style: none;
+  margin: 12px 0;
+  padding: 0;
+  display: grid;
+  gap: 6px;
+}
+.calib__item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface);
+  opacity: 0.55;
+  transition: opacity 0.2s ease, border-color 0.2s ease;
+}
+.calib__item.is-active {
+  opacity: 1;
+  border-color: var(--accent);
+}
+.calib__item.is-done {
+  opacity: 1;
+}
+.calib__item-icon {
+  width: 1.4rem;
+  text-align: center;
+}
+.calib__item.is-done .calib__item-icon {
+  color: #34d399;
+  font-weight: 700;
+}
+.calib__item-label {
+  flex: 1;
+  font-weight: 600;
+}
+.calib__item-val {
+  color: var(--text-dim);
+  font-variant-numeric: tabular-nums;
+  font-size: 0.9rem;
+}
+.calib__redo {
+  background: none;
+  border: none;
+  color: var(--accent);
+  font-size: 0.8rem;
+  cursor: pointer;
+  padding: 2px 4px;
+  text-decoration: underline;
 }

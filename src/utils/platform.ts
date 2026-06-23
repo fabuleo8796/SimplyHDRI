@@ -18,3 +18,20 @@ export function isIOS(): boolean {
   const isIPadOS = ua.includes('Macintosh') && 'ontouchend' in document;
   return isAppleMobile || isIPadOS;
 }
+
+/** True on a phone or tablet (touch device), false on a desktop/laptop. */
+export function isMobile(): boolean {
+  if (isIOS()) return true;
+  const ua = window.navigator.userAgent;
+  if (/Android|webOS|BlackBerry|Windows Phone|Mobile/i.test(ua)) return true;
+  // Fallback: a coarse pointer with no hover is almost always a touch device.
+  return (
+    window.matchMedia('(pointer: coarse)').matches &&
+    window.matchMedia('(hover: none)').matches
+  );
+}
+
+/** True on a computer (the inverse of isMobile). */
+export function isDesktop(): boolean {
+  return !isMobile();
+}

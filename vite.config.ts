@@ -1,11 +1,13 @@
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
+import basicSsl from '@vitejs/plugin-basic-ssl';
 import { VitePWA } from 'vite-plugin-pwa';
 
 // https://vite.dev/config/
 export default defineConfig({
   plugins: [
     react(),
+    basicSsl(),
     VitePWA({
       // 'autoUpdate' = when you publish a new version, installed apps refresh
       // to the latest automatically the next time they open online.
@@ -15,9 +17,9 @@ export default defineConfig({
       includeAssets: ['favicon-32x32.png', 'apple-touch-icon.png'],
       // The Web App Manifest: this is what makes it installable as a PWA.
       manifest: {
-        name: 'SimplyHDRI',
-        short_name: 'SimplyHDRI',
-        description: 'Create a 360° environment map on your iPhone.',
+        name: 'SimplyTools',
+        short_name: 'SimplyTools',
+        description: 'Free, on-device tools for 3D & VFX artists. Starting with SimplyHDRI.',
         theme_color: '#0b1020',
         background_color: '#0b1020',
         display: 'standalone',
