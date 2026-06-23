@@ -110,6 +110,42 @@ export function CaptureScreen({ onBack }: CaptureScreenProps) {
     );
   }
 
+  // The scan needs the rear camera + motion sensors, which are only reliable
+  // (and fully permitted) when the app runs from the Home Screen. In a plain
+  // Safari tab we block scanning and show how to install. (Skipped during local
+  // `npm run dev` so LAN testing in Safari still works — enforced in the build.)
+  if (!installed && !import.meta.env.DEV) {
+    return (
+      <div className="app-shell">
+        <header className="brand">
+          <img src="/pwa-192x192.png" alt="SimplyVoxel icon" />
+          <div>
+            <h1>
+              <ProximityText>Add to Home Screen</ProximityText>
+            </h1>
+            <div className="tagline">Scanning runs from the installed app</div>
+          </div>
+        </header>
+
+        <section className="card">
+          <h2>
+            📲 <ProximityText>Install to scan</ProximityText>
+          </h2>
+          <p>
+            The scanner uses your camera and motion sensors, which only work
+            reliably when SimplyVoxel is added to your Home Screen. It takes a
+            few seconds — then open it like a normal app and scan away. 🧊
+          </p>
+          <InstallSteps />
+        </section>
+
+        <button className="btn btn-ghost" onClick={onBack}>
+          ← Back
+        </button>
+      </div>
+    );
+  }
+
   const startScan = () => {
     start();
     if (oriStatus !== 'granted') enableOri();
@@ -465,16 +501,6 @@ export function CaptureScreen({ onBack }: CaptureScreenProps) {
             </div>
           )}
         </section>
-      )}
-
-      {/* Gentle install hint on the web (the camera still works in Safari). */}
-      {!installed && onPhone && (
-        <details className="install-tip">
-          <summary>
-            💡 <ProximityText>Tip: add SimplyHDRI to your Home Screen</ProximityText>
-          </summary>
-          <InstallSteps />
-        </details>
       )}
 
       <button className="btn btn-ghost" onClick={onBack}>

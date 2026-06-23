@@ -64,7 +64,7 @@ const steps: Step[] = [
   },
   {
     icon: <HomeIcon />,
-    title: 'Open SimplyHDRI',
+    title: 'Open SimplyVoxel',
     text: 'Launch it from your Home Screen like a real app.',
   },
 ];
