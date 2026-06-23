@@ -66,7 +66,7 @@ export function SideMenu({ open, onClose, onNavigate }: SideMenuProps) {
           ))}
         </ul>
 
-        <div className="menu__foot">SimplyTools · Free · On-device</div>
+        <div className="menu__foot">SimplyVoxel · Free · On-device</div>
       </nav>
     </div>
   );

@@ -45,7 +45,7 @@ export function SimplyHdri({ onEnvMap, onBack }: SimplyHdriProps) {
       </div>
 
       <button className="btn btn-ghost" onClick={onBack}>
-        ← Back to SimplyTools
+        ← Back to SimplyVoxel
       </button>
     </div>
   );

@@ -17,8 +17,8 @@ export default defineConfig({
       includeAssets: ['favicon-32x32.png', 'apple-touch-icon.png'],
       // The Web App Manifest: this is what makes it installable as a PWA.
       manifest: {
-        name: 'SimplyTools',
-        short_name: 'SimplyTools',
+        name: 'SimplyVoxel',
+        short_name: 'SimplyVoxel',
         description: 'Free, on-device tools for 3D & VFX artists. Starting with SimplyHDRI.',
         theme_color: '#0b1020',
         background_color: '#0b1020',

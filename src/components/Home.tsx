@@ -1,4 +1,4 @@
-// SimplyTools company hub: a hero + a grid of tools. SimplyHDRI is live; the
+// SimplyVoxel company hub: a hero + a grid of tools. SimplyHDRI is live; the
 // rest are placeholders for what's coming (auto-rigger, etc.).
 import BorderGlow from './BorderGlow';
 import { ProximityText } from './ProximityText';
@@ -18,7 +18,7 @@ const TOOLS: Tool[] = [
   {
     emoji: '🌍',
     name: 'SimplyHDRI',
-    desc: 'Capture 360° environment maps & true HDRIs on your phone.',
+    desc: 'Capture 360° environment maps on your phone.',
     ready: true,
   },
   {
@@ -40,7 +40,7 @@ export function Home({ onOpenSimplyHdri }: HomeProps) {
     <div className="app-shell">
       <section className="hero">
         <h1 className="hero__title">
-          <ProximityText>SimplyTools</ProximityText>
+          <ProximityText>SimplyVoxel</ProximityText>
         </h1>
         <p className="hero__tag">
           Pro tools for 3D &amp; VFX artists — <strong>made simple</strong>. Free,

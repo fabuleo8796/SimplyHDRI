@@ -1,4 +1,4 @@
-// Slim top bar: the SimplyTools wordmark plus a hamburger that opens the side
+// Slim top bar: the SimplyVoxel wordmark plus a hamburger that opens the side
 // menu. Stays at the top of every screen.
 import { ProximityText } from './ProximityText';
 
@@ -10,10 +10,10 @@ type NavBarProps = {
 export function NavBar({ onMenu, onHome }: NavBarProps) {
   return (
     <header className="navbar">
-      <button className="navbar__brand" onClick={onHome} aria-label="SimplyTools home">
+      <button className="navbar__brand" onClick={onHome} aria-label="SimplyVoxel home">
         <img src="/pwa-192x192.png" alt="" />
         <span className="navbar__name">
-          <ProximityText>SimplyTools</ProximityText>
+          <ProximityText>SimplyVoxel</ProximityText>
         </span>
       </button>
 
